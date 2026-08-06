@@ -1,0 +1,23 @@
+node_modules/
+coverage/
+.validation-deps/
+
+# Local project register data and runtime state
+data/*
+!data/.gitkeep
+
+# Machine-specific project-manager binding
+.project-manager.json
+
+# Local logs and temporary files
+*.log
+*.pid
+*.port
+*.tmp
+*.bak
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

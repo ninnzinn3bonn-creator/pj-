@@ -1,0 +1,7 @@
+interface:
+  display_name: "プロジェクト進捗更新"
+  short_description: "実際のコードとテスト結果から台帳の進捗を確認・反映"
+  default_prompt: "Use $project-progress-update to inspect this project and preview its verified progress update."
+
+policy:
+  allow_implicit_invocation: true

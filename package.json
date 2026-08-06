@@ -1,0 +1,19 @@
+{
+  "name": "local-project-manager",
+  "version": "1.0.0",
+  "private": true,
+  "description": "LAN内で共有できるシンプルな開発プロジェクト管理台帳",
+  "bin": {
+    "project-manager": "bin/project-manager.js"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "cli": "node bin/project-manager.js",
+    "test": "node --test --test-concurrency=1 test/*.test.js",
+    "test:server": "node --test test/server.test.js",
+    "test:integration": "node --test --test-concurrency=1 test/cli.test.js test/hook.test.js test/skill.test.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

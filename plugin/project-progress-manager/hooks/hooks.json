@@ -1,0 +1,18 @@
+{
+  "description": "進捗および概念図の確認・反映キーフレーズをProject Progress Managerスキルへ接続します。",
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$PLUGIN_ROOT/hooks/project-progress-intent.cjs\"",
+            "commandWindows": "node \"%PLUGIN_ROOT%\\hooks\\project-progress-intent.cjs\"",
+            "timeout": 10,
+            "statusMessage": "プロジェクト進捗アクションを確認中"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,4 @@
+interface:
+  display_name: "プロジェクト概念図更新"
+  short_description: "実コード分析でプロジェクト概念図JSONを安全に確認・反映"
+  default_prompt: "Use $project-architecture-update to analyze this project and preview its architecture diagram JSON."

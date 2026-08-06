@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="複数の開発プロジェクトを一覧管理するローカル台帳">
+  <title>開発プロジェクト台帳</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/architecture-viewer.css">
+</head>
+<body>
+  <header class="site-header">
+    <div>
+      <p class="eyebrow">LOCAL PROJECT REGISTER</p>
+      <h1>開発プロジェクト台帳</h1>
+      <p class="header-note">アプリ、Webサイト、開発作業の状態をこのPCにまとめて保存します。</p>
+    </div>
+    <div class="header-actions" aria-label="全体操作">
+      <button type="button" id="cli-button">CLI連携</button>
+      <button type="button" id="copy-create-prompt">新規解析プロンプトをコピー</button>
+      <button type="button" id="export-button">JSONを書き出す</button>
+      <button type="button" id="backup-button">JSONを取り込む</button>
+    </div>
+  </header>
+
+  <div id="message" class="message" role="status" aria-live="polite" hidden></div>
+
+  <main>
+    <section id="list-view" aria-labelledby="list-title">
+      <div class="section-heading">
+        <div>
+          <h2 id="list-title">プロジェクト一覧</h2>
+          <p id="status-counts" class="status-counts">読み込み中…</p>
+        </div>
+        <div class="primary-actions">
+          <button type="button" id="delete-samples" class="danger-text" hidden>サンプルを一括削除</button>
+          <button type="button" id="ai-import-button">AI出力を取り込む</button>
+          <button type="button" id="new-project-button" class="primary">新規プロジェクト登録</button>
+        </div>
+      </div>
+
+      <div class="filters" aria-label="一覧の検索と並び替え">
+        <label>
+          <span>名前検索</span>
+          <input type="search" id="search-input" placeholder="名前・ID・タグ">
+        </label>
+        <label>
+          <span>状態</span>
+          <select id="status-filter">
+            <option value="">すべて</option>
+          </select>
+        </label>
+        <label>
+          <span>担当者</span>
+          <select id="owner-filter">
+            <option value="">すべて</option>
+          </select>
+        </label>
+        <label>
+          <span>並び順</span>
+          <select id="sort-select">
+            <option value="updated_desc">最終更新日時（新しい順）</option>
+            <option value="updated_asc">最終更新日時（古い順）</option>
+            <option value="progress_desc">進捗（高い順）</option>
+            <option value="progress_asc">進捗（低い順）</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="table-wrap">
+        <table class="project-table">
+          <thead>
+            <tr>
+              <th scope="col">プロジェクト名</th>
+              <th scope="col">URL</th>
+              <th scope="col">管理状態</th>
+              <th scope="col">進捗</th>
+              <th scope="col">担当者</th>
+              <th scope="col">更新元</th>
+              <th scope="col">最終更新日時</th>
+            </tr>
+          </thead>
+          <tbody id="project-rows"></tbody>
+        </table>
+      </div>
+      <p id="empty-state" class="empty-state" hidden>プロジェクトがまだ登録されていません</p>
+      <p id="filtered-empty-state" class="empty-state" hidden>条件に一致するプロジェクトはありません</p>
+    </section>
+
+    <section id="detail-view" aria-labelledby="detail-title" hidden>
+      <div class="detail-nav">
+        <button type="button" id="back-button">← 一覧へ戻る</button>
+        <span id="detail-updated" class="muted"></span>
+      </div>
+      <div id="detail-content"></div>
+    </section>
+
+    <section id="architecture-view" aria-label="プロジェクト概念図" hidden>
+      <div class="detail-nav">
+        <button type="button" id="architecture-back-button">← プロジェクト詳細へ戻る</button>
+        <span id="architecture-updated" class="muted"></span>
+      </div>
+      <div id="architecture-content" tabindex="-1"></div>
+    </section>
+  </main>
+
+  <dialog id="manual-dialog" aria-labelledby="manual-title">
+    <form id="manual-form" autocomplete="off">
+      <div class="dialog-heading">
+        <h2 id="manual-title">新規プロジェクト登録</h2>
+        <button type="button" class="icon-button" data-close-dialog aria-label="閉じる">×</button>
+      </div>
+      <p class="form-note">Enterキーだけでは保存されません。内容を確認して保存ボタンを押してください。</p>
+      <div class="form-grid">
+        <label class="wide"><span>プロジェクト名 <b aria-hidden="true">*</b></span><input name="name" required maxlength="120"></label>
+        <label><span>プロジェクトID</span><input name="projectId" pattern="[A-Za-z0-9][A-Za-z0-9-]*" placeholder="未入力なら自動生成"></label>
+        <label><span>担当者</span><input name="owner" maxlength="80"></label>
+        <label class="wide"><span>アプリURL</span><input name="appUrl" type="url" placeholder="http://localhost:3000"></label>
+        <label class="wide"><span>管理者サイトURL</span><input name="adminUrl" type="url" placeholder="http://localhost:3000/admin"></label>
+        <label class="wide"><span>リポジトリURL</span><input name="repositoryUrl" type="url"></label>
+        <label class="wide"><span>開発環境URL</span><input name="developmentUrl" type="url"></label>
+        <label><span>管理状態 <b aria-hidden="true">*</b></span><select name="status" required></select></label>
+        <label><span>進捗率（0〜100） <b aria-hidden="true">*</b></span><input name="progress" type="number" min="0" max="100" step="1" value="0" required></label>
+        <label class="wide"><span>タグ（カンマ区切り）</span><input name="tags" placeholder="Webアプリ, 社内用"></label>
+        <label class="wide"><span>現在の状況</span><textarea name="summary" rows="3"></textarea></label>
+        <label class="wide"><span>現在作業中の項目（1行に1件）</span><textarea name="currentTasks" rows="3"></textarea></label>
+        <label class="wide"><span>次に行う作業（1行に1件）</span><textarea name="nextTasks" rows="3"></textarea></label>
+        <label class="wide"><span>問題・ブロッカー（1行に1件）</span><textarea name="blockers" rows="3"></textarea></label>
+      </div>
+      <div id="manual-error" class="error-box" role="alert" hidden></div>
+      <div class="dialog-actions">
+        <button type="button" data-close-dialog>キャンセル</button>
+        <button type="button" id="manual-save" class="primary">保存する</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="ai-dialog" class="wide-dialog" aria-labelledby="ai-title">
+    <div class="dialog-heading">
+      <h2 id="ai-title">AI出力を取り込む</h2>
+      <button type="button" class="icon-button" data-close-dialog aria-label="閉じる">×</button>
+    </div>
+    <p id="ai-guidance" class="form-note">project-statusコードブロック、jsonコードブロック、または生JSONを貼り付けてください。</p>
+    <textarea id="ai-text" class="code-input" rows="15" spellcheck="false" placeholder="```project-status&#10;{ ... }&#10;```"></textarea>
+    <div id="ai-error" class="error-box" role="alert" hidden></div>
+    <div id="ai-preview" hidden></div>
+    <div class="dialog-actions">
+      <button type="button" data-close-dialog>キャンセル</button>
+      <button type="button" id="ai-analyze">解析する</button>
+      <button type="button" id="ai-commit" class="primary" hidden>登録を確定</button>
+    </div>
+  </dialog>
+
+  <dialog id="cli-dialog" class="wide-dialog" aria-labelledby="cli-title">
+    <div class="dialog-heading">
+      <h2 id="cli-title">CLI・Codex連携</h2>
+      <button type="button" class="icon-button" data-close-dialog aria-label="閉じる">×</button>
+    </div>
+    <p class="form-note">Web画面、CLI、Codexスキルは同じAPIを使用します。データJSONを直接編集する必要はありません。</p>
+    <div class="cli-grid">
+      <section>
+        <h3>接続状態</h3>
+        <dl class="cli-meta">
+          <div><dt>管理サイト</dt><dd><code id="cli-url"></code></dd></div>
+          <div><dt>サービス</dt><dd id="cli-service">確認中…</dd></div>
+          <div><dt>バージョン</dt><dd id="cli-version">—</dd></div>
+        </dl>
+      </section>
+      <section>
+        <h3>PowerShellから使う</h3>
+        <p class="form-note">このアプリのフォルダで実行できます。</p>
+        <pre id="cli-basic-command" class="command-box"></pre>
+        <button type="button" id="copy-cli-basic">基本コマンドをコピー</button>
+      </section>
+      <section>
+        <h3>JSONをプレビュー・反映</h3>
+        <pre id="cli-json-command" class="command-box"></pre>
+        <button type="button" id="copy-cli-json">JSON入力コマンドをコピー</button>
+      </section>
+      <section>
+        <h3>プロジェクトを関連付ける</h3>
+        <p class="form-note">対象プロジェクトのフォルダで実行し、Codexが更新先を誤認しないようにします。</p>
+        <pre id="cli-link-command" class="command-box"></pre>
+        <button type="button" id="copy-cli-link">関連付けコマンドをコピー</button>
+      </section>
+      <section class="cli-wide">
+        <h3>Codexキーフレーズ</h3>
+        <table class="definition-table">
+          <tbody>
+            <tr><th scope="row"><code>進捗を確認</code></th><td>実際のコードとテストを分析し、更新プレビューまで実行します。台帳は変更しません。</td></tr>
+            <tr><th scope="row"><code>進捗に反映</code></th><td>分析・JSON検証・差分確認後、関連付け済みプロジェクトへ1回だけ反映します。</td></tr>
+          </tbody>
+        </table>
+        <p class="form-note">キーフレーズは入力全体が一致した場合だけ作動します。Codexではプロジェクトフックを一度確認・信頼してください。</p>
+      </section>
+    </div>
+    <div id="cli-error" class="error-box" role="alert" hidden></div>
+    <div class="dialog-actions">
+      <button type="button" data-close-dialog>閉じる</button>
+    </div>
+  </dialog>
+
+  <dialog id="backup-dialog" aria-labelledby="backup-title">
+    <div class="dialog-heading">
+      <h2 id="backup-title">バックアップJSONを取り込む</h2>
+      <button type="button" class="icon-button" data-close-dialog aria-label="閉じる">×</button>
+    </div>
+    <label class="file-label"><span>JSONファイル</span><input type="file" id="backup-file" accept="application/json,.json"></label>
+    <fieldset>
+      <legend>取り込み方法</legend>
+      <label class="radio-label"><input type="radio" name="backup-strategy" value="merge" checked> 追加・更新（同じIDはバックアップ内容で更新）</label>
+      <label class="radio-label"><input type="radio" name="backup-strategy" value="replace"> 全データを置き換える</label>
+    </fieldset>
+    <div id="backup-error" class="error-box" role="alert" hidden></div>
+    <div id="backup-preview" class="preview-box" hidden></div>
+    <div class="dialog-actions">
+      <button type="button" data-close-dialog>キャンセル</button>
+      <button type="button" id="backup-preview-button">内容を確認</button>
+      <button type="button" id="backup-commit" class="primary" hidden>取り込みを確定</button>
+    </div>
+  </dialog>
+
+  <dialog id="confirm-dialog" aria-labelledby="confirm-title">
+    <div class="dialog-heading">
+      <h2 id="confirm-title">確認</h2>
+      <button type="button" class="icon-button" id="confirm-close" aria-label="閉じる">×</button>
+    </div>
+    <p id="confirm-message"></p>
+    <div class="dialog-actions">
+      <button type="button" id="confirm-cancel">キャンセル</button>
+      <button type="button" id="confirm-ok" class="danger">実行する</button>
+    </div>
+  </dialog>
+
+  <dialog id="architecture-import-dialog" class="wide-dialog" aria-labelledby="architecture-import-title">
+    <div class="dialog-heading">
+      <h2 id="architecture-import-title">概念図JSONを取り込む</h2>
+      <button type="button" class="icon-button" data-close-dialog aria-label="閉じる">×</button>
+    </div>
+    <p class="form-note">対象プロジェクトと一致するarchitecture-graph JSONを選択してください。保存前に内容を検証します。</p>
+    <label class="file-label"><span>概念図JSON</span><input type="file" id="architecture-import-file" accept="application/json,.json"></label>
+    <div id="architecture-import-error" class="error-box" role="alert" hidden></div>
+    <div id="architecture-import-preview" class="preview-box" hidden></div>
+    <div class="dialog-actions">
+      <button type="button" data-close-dialog>キャンセル</button>
+      <button type="button" id="architecture-import-preview-button">内容を確認</button>
+      <button type="button" id="architecture-import-commit-button" class="primary" hidden>台帳へ保存</button>
+    </div>
+  </dialog>
+
+  <script src="/architecture-viewer.js" defer></script>
+  <script src="/app.js" defer></script>
+</body>
+</html>

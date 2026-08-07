@@ -107,12 +107,40 @@ test('配布プラグインの概念図キーフレーズは確認と反映を�
   assert.equal(mentioned.stdout, '');
 });
 
-test('配布プラグインにmanifestと2つのスキルが含まれる', async () => {
+test('配布プラグインの新規登録キーフレーズは確認と登録を分離する', async () => {
+  const preview = await runHookAt(PLUGIN_HOOK_SCRIPT, '新規登録を確認');
+  assert.equal(preview.code, 0, preview.stderr);
+  const previewContext = JSON.parse(preview.stdout).hookSpecificOutput.additionalContext;
+  assert.match(previewContext, /\$register-project/);
+  assert.match(previewContext, /--preview/);
+  assert.doesNotMatch(previewContext, /--apply/);
+  assert.match(previewContext, /台帳への書き込み.*行わない/);
+  assert.match(previewContext, /\.project-manager\.jsonの作成・変更.*行わない/);
+
+  const apply = await runHookAt(PLUGIN_HOOK_SCRIPT, '台帳に新規登録。');
+  assert.equal(apply.code, 0, apply.stderr);
+  const applyContext = JSON.parse(apply.stdout).hookSpecificOutput.additionalContext;
+  assert.match(applyContext, /\$register-project/);
+  assert.match(applyContext, /--preview.*--apply/);
+  assert.match(applyContext, /登録成功後.*\.project-manager\.json/);
+  assert.match(applyContext, /既存の関連付けファイルは上書きしない/);
+
+  const mentioned = await runHookAt(PLUGIN_HOOK_SCRIPT, '「台帳に新規登録」という操作を説明して');
+  assert.equal(mentioned.code, 0, mentioned.stderr);
+  assert.equal(mentioned.stdout, '');
+});
+
+test('配布プラグインにmanifestと3つのスキルが含まれる', async () => {
   const manifest = JSON.parse(await fs.readFile(path.join(PLUGIN_ROOT, '.codex-plugin', 'plugin.json'), 'utf8'));
   assert.equal(manifest.name, 'project-progress-manager');
-  assert.ok(manifest.interface.defaultPrompt.includes('概念図に反映'));
+  assert.equal(manifest.version, '0.3.0');
+  assert.deepEqual(manifest.interface.defaultPrompt, ['台帳に新規登録', '進捗に反映', '概念図に反映']);
+  assert.equal(Object.hasOwn(manifest, 'hooks'), false);
   await fs.access(path.join(PLUGIN_ROOT, 'skills', 'project-progress-update', 'SKILL.md'));
   const architectureSkill = await fs.readFile(path.join(PLUGIN_ROOT, 'skills', 'project-architecture-update', 'SKILL.md'), 'utf8');
   assert.match(architectureSkill, /name: project-architecture-update/);
   assert.doesNotMatch(architectureSkill, /\[TODO:/);
+  const registrationSkill = await fs.readFile(path.join(PLUGIN_ROOT, 'skills', 'register-project', 'SKILL.md'), 'utf8');
+  assert.match(registrationSkill, /name: register-project/);
+  assert.doesNotMatch(registrationSkill, /\[TODO:/);
 });

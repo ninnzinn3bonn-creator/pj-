@@ -63,10 +63,11 @@ function nowIso() {
   return new Date().toISOString();
 }
 
-function apiError(status, message, details = []) {
+function apiError(status, message, details = [], apiCode = '') {
   const error = new Error(message);
   error.status = status;
   error.details = details;
+  error.apiCode = apiCode;
   return error;
 }
 
@@ -110,6 +111,35 @@ function validateUrl(value, label, errors) {
     }
   } catch {
     errors.push(`${label}の形式が正しくありません。`);
+  }
+}
+
+function normalizedRepositoryUrl(value) {
+  const repositoryUrl = cleanString(value);
+  if (!repositoryUrl) return '';
+  try {
+    const parsed = new URL(repositoryUrl);
+    parsed.hash = '';
+    parsed.search = '';
+    parsed.protocol = parsed.protocol.toLowerCase();
+    parsed.hostname = parsed.hostname.toLowerCase();
+    parsed.pathname = parsed.pathname.replace(/\/+$/, '').replace(/\.git$/i, '');
+    return parsed.toString().replace(/\/+$/, '');
+  } catch {
+    return repositoryUrl.toLowerCase().replace(/\/+$/, '').replace(/\.git$/i, '');
+  }
+}
+
+function assertRepositoryUrlAvailable(store, project) {
+  const expected = normalizedRepositoryUrl(project.repositoryUrl);
+  if (!expected) return;
+  const conflict = store.projects.find((item) => item.projectId !== project.projectId
+    && normalizedRepositoryUrl(item.repositoryUrl) === expected);
+  if (conflict) {
+    throw apiError(409, '同じrepository_urlのプロジェクトが既に登録されています。', [
+      conflict.projectId,
+      project.repositoryUrl
+    ], 'REPOSITORY_CONFLICT');
   }
 }
 
@@ -577,7 +607,8 @@ function sendError(response, error) {
   if (status >= 500) console.error(error);
   sendJson(response, status, {
     error: error.message || 'サーバーエラーが発生しました。',
-    details: Array.isArray(error.details) ? error.details : []
+    details: Array.isArray(error.details) ? error.details : [],
+    ...(error.apiCode ? { code: error.apiCode } : {})
   });
 }
 
@@ -806,8 +837,9 @@ async function handleApi(request, response, url) {
       if (!cleanString(draft.projectId)) draft.projectId = generateProjectId(draft.name);
       const normalized = validateProjectInput(draft);
       if (store.projects.some((item) => item.projectId === normalized.projectId)) {
-        throw apiError(409, 'project_idが既に登録されています。', [normalized.projectId]);
+        throw apiError(409, 'project_idが既に登録されています。', [normalized.projectId], 'PROJECT_ID_CONFLICT');
       }
+      assertRepositoryUrlAvailable(store, normalized);
       const project = createProject(normalized, { source: normalizeSource(body.source) });
       store.projects.push(project);
       await writeStoreAtomic(store);
@@ -883,8 +915,9 @@ async function handleApi(request, response, url) {
     const store = await readStore();
     const existing = store.projects.find((item) => item.projectId === parsed.project.projectId);
     if (parsed.mode === 'create' && existing) {
-      throw apiError(409, 'project_idが既に登録されています。', [parsed.project.projectId]);
+      throw apiError(409, 'project_idが既に登録されています。', [parsed.project.projectId], 'PROJECT_ID_CONFLICT');
     }
+    if (parsed.mode === 'create') assertRepositoryUrlAvailable(store, parsed.project);
     if (parsed.mode === 'update' && !existing) {
       throw apiError(404, '更新対象のproject_idが存在しません。', [parsed.project.projectId]);
     }
@@ -892,7 +925,10 @@ async function handleApi(request, response, url) {
       throw apiError(400, `この画面ではmodeが${body.expectedMode}のデータを貼り付けてください。`);
     }
     const previewProject = parsed.mode === 'create'
-      ? createProject(parsed.project, { updatedAt: parsed.project.updatedAt })
+      ? createProject(parsed.project, {
+        updatedAt: parsed.project.updatedAt,
+        source: normalizeSource(body.source)
+      })
       : { ...existing, ...parsed.project, projectId: existing.projectId, createdAt: existing.createdAt, history: existing.history };
     return sendJson(response, 200, {
       mode: parsed.mode,
@@ -912,17 +948,23 @@ async function handleApi(request, response, url) {
       const applied = findAppliedRequest(store, requestId);
       if (applied) {
         if (applied.fingerprint !== fingerprint || applied.projectId !== parsed.project.projectId) {
-          throw apiError(409, '同じrequest_idが別の更新に使用されています。', [requestId]);
+          throw apiError(409, '同じrequest_idが別の更新に使用されています。', [requestId], 'REQUEST_ID_CONFLICT');
         }
         const replayed = store.projects.find((item) => item.projectId === applied.projectId);
         if (!replayed) {
-          throw apiError(409, 'request_idに対応するプロジェクトが現在のデータに存在しません。', [requestId]);
+          throw apiError(
+            409,
+            'request_idに対応するプロジェクトが現在のデータに存在しません。',
+            [requestId],
+            'REQUEST_REPLAY_MISSING'
+          );
         }
         return sendJson(response, 200, replayed, { 'X-Idempotent-Replay': 'true' });
       }
       const index = store.projects.findIndex((item) => item.projectId === parsed.project.projectId);
       if (parsed.mode === 'create') {
-        if (index >= 0) throw apiError(409, 'project_idが既に登録されています。');
+        if (index >= 0) throw apiError(409, 'project_idが既に登録されています。', [], 'PROJECT_ID_CONFLICT');
+        assertRepositoryUrlAvailable(store, parsed.project);
         const created = createProject(parsed.project, {
           updatedAt: parsed.project.updatedAt,
           source

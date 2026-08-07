@@ -1,6 +1,6 @@
 # 開発プロジェクト台帳
 
-複数のアプリ、Webアプリ、開発プロジェクトを、Web画面・CLI・Codexから一元管理するローカルアプリです。プロジェクトの進捗に加えて、コードから生成した概念図（アーキテクチャ図）をプロジェクトごとに保存・閲覧できます。
+複数のアプリ、Webアプリ、開発プロジェクトを、Web画面・CLI・Codexから一元管理するローカルアプリです。Codexからの新規登録や進捗更新に加えて、コードから生成した概念図（アーキテクチャ図）をプロジェクトごとに保存・閲覧できます。
 
 外部CDN、外部フォント、データベースは使用しません。Node.js標準機能だけで動作し、データはローカルJSONへ保存します。
 
@@ -91,10 +91,25 @@ project-manager architecture export --output architecture.json
 
 `apply`は必ずサーバー側のプレビューを通してから保存します。同じ内容の再送、異なるプロジェクトID、古いrevisionによる競合を検出します。
 
+### 新規登録JSON
+
+プラグイン同梱の登録ランナーは、`mode=create`の`project-status` JSONを台帳へ登録し、成功後に対象ルートを関連付けます。
+
+```powershell
+$runner = ".\plugin\project-progress-manager\skills\register-project\scripts\register-project.mjs"
+node $runner --preview --file status.json --url http://127.0.0.1:4170 --root "<project-root>"
+node $runner --apply --file status.json --url http://127.0.0.1:4170 --root "<project-root>"
+```
+
+`--file`を省略すると標準入力を使用でき、`--request-id <id>`も指定できます。プレビューでは台帳と`.project-manager.json`を変更しません。適用時は既存の関連付けがあれば登録前に中止し、上書きしません。新しい`.project-manager.json`は台帳登録の成功後にだけ原子的に作成されます。登録後に関連付け作成が失敗した場合は、機械可読エラーの`registrationSucceeded`と`recoveryLink`に従って復旧し、同じ登録を再送しないでください。
+
 ## Codexプラグイン
 
-配布可能なプラグインソースは`plugin/project-progress-manager`にあります。次の2つのスキルを含みます。
+配布可能なプラグインソースは`plugin/project-progress-manager`にあります。次の3つのスキルを含みます。
 
+- `register-project`
+  - `新規登録を確認`: 実ファイルを分析し、保存せず登録内容をプレビュー
+  - `台帳に新規登録`: 重複と関連付けを検証後、台帳へ登録して関連付け
 - `project-progress-update`
   - `進捗を確認`: 実ファイルを分析し、保存せずプレビュー
   - `進捗に反映`: 分析・検証後に台帳へ反映
@@ -102,7 +117,7 @@ project-manager architecture export --output architecture.json
   - `概念図を確認`: 実ファイルを分析し、概念図JSONをプレビュー
   - `概念図に反映`: 分析・検証後に概念図を台帳へ反映
 
-どちらも対象プロジェクト内のREADME、ソースコード、設定、TODO、テスト、Git状態を確認し、`.project-manager.json`で関連付けられた台帳だけを更新します。
+3つのスキルはいずれも対象プロジェクト内のREADME、ソースコード、設定、TODO、テスト、Git状態を実際に確認します。進捗と概念図は`.project-manager.json`で関連付けられた台帳だけを更新し、新規登録は成功後にその関連付けを安全に作成します。
 
 ## 保存データ
 

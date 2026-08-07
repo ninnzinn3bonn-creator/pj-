@@ -42,6 +42,24 @@ function architectureContext(action) {
   ].join(' ');
 }
 
+function registrationContext(action) {
+  if (action === 'apply') {
+    return [
+      'ユーザーは入力全体を「台帳に新規登録」とし、このターンで現在の開発プロジェクトを台帳へ新規登録することを明示的に承認した。',
+      'Project Progress Managerプラグインの$register-projectスキルを使用すること。',
+      'README・ソース・設定・TODO・Git状態・テスト結果を実際に調査し、mode=createの完全なproject-status JSONを生成すること。',
+      'スキル付属のregister-project.mjsで必ず--previewを確認してから、--applyを1回だけ実行すること。',
+      '重複するproject_idまたはrepository_urlを登録しないこと。登録成功後にだけ.project-manager.jsonを作成し、既存の関連付けファイルは上書きしないこと。削除操作は行わないこと。'
+    ].join(' ');
+  }
+  return [
+    'ユーザーは入力全体を「新規登録を確認」とし、現在の開発プロジェクトを台帳へ新規登録するための分析とプレビューを求めている。',
+    'Project Progress Managerプラグインの$register-projectスキルを使用すること。',
+    '実際のファイルとテスト結果からmode=createのproject-status JSONを生成し、スキル付属のregister-project.mjsで--previewまで実行すること。',
+    '台帳への書き込みや.project-manager.jsonの作成・変更は行わないこと。'
+  ].join(' ');
+}
+
 async function main() {
   let payload;
   try {
@@ -56,11 +74,18 @@ async function main() {
   const preview = /^進捗を確認[。！!]?$/u.test(prompt);
   const architectureApply = /^概念図に反映[。！!]?$/u.test(prompt);
   const architecturePreview = /^概念図を確認[。！!]?$/u.test(prompt);
-  if (!apply && !preview && !architectureApply && !architecturePreview) return;
+  const registrationApply = /^台帳に新規登録[。！!]?$/u.test(prompt);
+  const registrationPreview = /^新規登録を確認[。！!]?$/u.test(prompt);
+  if (!apply && !preview && !architectureApply && !architecturePreview && !registrationApply && !registrationPreview) return;
 
-  const context = architectureApply || architecturePreview
-    ? architectureContext(architectureApply ? 'apply' : 'preview')
-    : additionalContext(apply ? 'apply' : 'preview');
+  let context;
+  if (registrationApply || registrationPreview) {
+    context = registrationContext(registrationApply ? 'apply' : 'preview');
+  } else if (architectureApply || architecturePreview) {
+    context = architectureContext(architectureApply ? 'apply' : 'preview');
+  } else {
+    context = additionalContext(apply ? 'apply' : 'preview');
+  }
 
   process.stdout.write(JSON.stringify({
     hookSpecificOutput: {

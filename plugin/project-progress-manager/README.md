@@ -25,6 +25,8 @@ node $runner --apply --file "<status.json>" --url http://127.0.0.1:4170 --root "
 
 `--apply`は登録前に`<project-root>/.project-manager.json`が存在しないことを確認します。既存ファイルは内容が一致していても上書きせず、台帳へ送信する前に中止します。新しい関連付けはサーバーで登録が成功した後にだけ一時ファイルから原子的に作成します。サーバー登録後に関連付けの作成だけが失敗した場合は、`registrationSucceeded`と`recoveryLink`を含むエラーに従って復旧し、登録を再送しないでください。
 
+ステータスは`idea`、`planning`、`development`、`testing`、`release_ready`、`published`、`update_pending`、`blocked`、`paused`、`archived`へ正規化されます。`in_progress`、`completed`、`release-ready`、一般的な日本語ラベルも受け付け、保存時は正規の値になります。
+
 ## 既存プロジェクトの関連付け
 
 管理サイトを起動してから、対象プロジェクトのルートで次を実行します。

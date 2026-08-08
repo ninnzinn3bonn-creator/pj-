@@ -63,7 +63,7 @@ Produce every field below and keep `mode` as `create`:
 }
 ```
 
-Use only these statuses: `idea`, `planning`, `development`, `testing`, `release_ready`, `published`, `update_pending`, `blocked`, `paused`, `archived`. Use only HTTP/HTTPS URLs or an empty string. Keep task and tag fields as string arrays.
+Use these canonical statuses: `idea`, `planning`, `development`, `testing`, `release_ready`, `published`, `update_pending`, `blocked`, `paused`, `archived`. The runner and server also normalize common aliases such as `in_progress` → `development`, `completed`/`done` → `published`, `release-ready` → `release_ready`, and common Japanese labels. The stored JSON always uses the canonical value. Use only HTTP/HTTPS URLs or an empty string. Keep task and tag fields as string arrays.
 
 ## Submit safely
 

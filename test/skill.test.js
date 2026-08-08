@@ -544,6 +544,19 @@ test('新規登録スキルは不正なID・URL・値のない--fileを拒否す
   }
 });
 
+test('新規登録スキルはstatus別名を正規化してpreviewする', async () => {
+  const workspace = await makeRegistrationWorkspace('status-alias');
+  const { inputFile } = await writeRegistrationPayload(workspace, 'registration-status-alias', {
+    status: 'in_progress'
+  });
+  const result = await runRegistration(
+    registrationArguments('--preview', workspace, inputFile),
+    { cwd: workspace }
+  );
+  assert.equal(result.code, 0, result.stderr);
+  assert.equal(JSON.parse(result.stdout).preview.project.status, 'development');
+});
+
 test('新規登録スキルは日本語の作業パスとUTF-8 JSONを扱う', async () => {
   const workspace = await makeRegistrationWorkspace('日本語プロジェクト');
   const { inputFile } = await writeRegistrationPayload(

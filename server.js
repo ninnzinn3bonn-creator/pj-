@@ -41,6 +41,45 @@ const STATUSES = [
   'paused',
   'archived'
 ];
+const STATUS_ALIASES = new Map([
+  ['todo', 'idea'],
+  ['not_started', 'idea'],
+  ['backlog', 'planning'],
+  ['in_progress', 'development'],
+  ['inprogress', 'development'],
+  ['in_development', 'development'],
+  ['complete', 'published'],
+  ['completed', 'published'],
+  ['done', 'published'],
+  ['release_ready', 'release_ready'],
+  ['release-ready', 'release_ready'],
+  ['release ready', 'release_ready'],
+  ['idea', 'idea'],
+  ['アイデア', 'idea'],
+  ['構想', 'idea'],
+  ['planning', 'planning'],
+  ['計画中', 'planning'],
+  ['企画中', 'planning'],
+  ['development', 'development'],
+  ['開発中', 'development'],
+  ['進行中', 'development'],
+  ['testing', 'testing'],
+  ['テスト中', 'testing'],
+  ['検証中', 'testing'],
+  ['リリース準備', 'release_ready'],
+  ['公開準備', 'release_ready'],
+  ['published', 'published'],
+  ['公開済み', 'published'],
+  ['完了', 'published'],
+  ['update_pending', 'update_pending'],
+  ['更新待ち', 'update_pending'],
+  ['blocked', 'blocked'],
+  ['ブロック', 'blocked'],
+  ['paused', 'paused'],
+  ['一時停止', 'paused'],
+  ['archived', 'archived'],
+  ['アーカイブ済み', 'archived']
+]);
 const UPDATE_SOURCES = ['web', 'web-ai', 'cli', 'codex-skill', 'backup'];
 const MAX_APPLIED_REQUESTS = 500;
 
@@ -78,6 +117,12 @@ function cleanString(value) {
 function normalizeSource(value, fallback = 'web') {
   const source = cleanString(value);
   return UPDATE_SOURCES.includes(source) ? source : fallback;
+}
+
+function normalizeStatus(value) {
+  const raw = cleanString(value).normalize('NFKC').toLowerCase();
+  const compact = raw.replace(/[\s-]+/g, '_');
+  return STATUS_ALIASES.get(raw) || STATUS_ALIASES.get(compact) || raw;
 }
 
 function normalizeRequestId(value) {
@@ -159,7 +204,7 @@ function validateProjectInput(input, { allowMissingId = false } = {}) {
   const errors = [];
   const projectId = cleanString(input.projectId);
   const name = cleanString(input.name);
-  const status = cleanString(input.status);
+  const status = normalizeStatus(input.status);
   const progress = Number(input.progress);
   const appUrl = cleanString(input.appUrl);
   const adminUrl = cleanString(input.adminUrl);

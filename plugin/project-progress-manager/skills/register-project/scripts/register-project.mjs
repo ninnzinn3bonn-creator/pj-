@@ -22,6 +22,35 @@ const STATUSES = new Set([
   'paused',
   'archived'
 ]);
+const STATUS_ALIASES = new Map([
+  ['todo', 'idea'],
+  ['not_started', 'idea'],
+  ['backlog', 'planning'],
+  ['in_progress', 'development'],
+  ['inprogress', 'development'],
+  ['in_development', 'development'],
+  ['complete', 'published'],
+  ['completed', 'published'],
+  ['done', 'published'],
+  ['release-ready', 'release_ready'],
+  ['release ready', 'release_ready'],
+  ['アイデア', 'idea'],
+  ['構想', 'idea'],
+  ['計画中', 'planning'],
+  ['企画中', 'planning'],
+  ['開発中', 'development'],
+  ['進行中', 'development'],
+  ['テスト中', 'testing'],
+  ['検証中', 'testing'],
+  ['リリース準備', 'release_ready'],
+  ['公開準備', 'release_ready'],
+  ['公開済み', 'published'],
+  ['完了', 'published'],
+  ['更新待ち', 'update_pending'],
+  ['ブロック', 'blocked'],
+  ['一時停止', 'paused'],
+  ['アーカイブ済み', 'archived']
+]);
 const REQUIRED_FIELDS = [
   'schema_version',
   'mode',
@@ -174,6 +203,16 @@ function extractJson(text) {
 
 function isPlainObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function normalizeStatus(value) {
+  const raw = typeof value === 'string' ? value.trim().normalize('NFKC').toLowerCase() : '';
+  const compact = raw.replace(/[\s-]+/g, '_');
+  return STATUS_ALIASES.get(raw) || STATUS_ALIASES.get(compact) || raw;
+}
+
+function normalizePayload(payload) {
+  return isPlainObject(payload) ? { ...payload, status: normalizeStatus(payload.status) } : payload;
 }
 
 function validateHttpUrl(value, field, errors) {
@@ -522,7 +561,7 @@ async function run() {
   const options = parseArguments(process.argv.slice(2));
   const mappingPath = await prepareRoot(options.root);
   const inputText = await readInput(options.filename);
-  const payload = extractJson(inputText);
+  const payload = normalizePayload(extractJson(inputText));
   validatePayload(payload);
   const canonicalText = JSON.stringify(payload);
   const manager = await resolveManagerUrl(options.managerUrl);

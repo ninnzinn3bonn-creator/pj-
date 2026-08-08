@@ -184,7 +184,10 @@ function showMessage(text, isError = false) {
 }
 
 function showInlineError(element, error) {
-  const details = Array.isArray(error.details) && error.details.length ? `\n${error.details.join('\n')}` : '';
+  const uniqueDetails = Array.isArray(error.details)
+    ? [...new Set(error.details.map((detail) => String(detail)).filter((detail) => detail && detail !== error.message))]
+    : [];
+  const details = uniqueDetails.length ? `\n${uniqueDetails.join('\n')}` : '';
   element.textContent = `${error.message}${details}`;
   element.hidden = false;
 }

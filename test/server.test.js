@@ -276,6 +276,42 @@ test('AI形式を確認してから新規登録する', async () => {
   assert.equal(missingReplay.data.code, 'REQUEST_REPLAY_MISSING');
 });
 
+test('AI取込は一般的なstatus別名を正規の10値へ正規化する', async () => {
+  const aliases = [
+    ['in_progress', 'development'],
+    ['completed', 'published'],
+    ['release-ready', 'release_ready'],
+    ['公開済み', 'published']
+  ];
+  for (const [index, [alias, canonical]] of aliases.entries()) {
+    const payload = {
+      schema_version: 1,
+      mode: 'create',
+      project_id: `status-alias-${index}`,
+      name: `Status alias ${index}`,
+      app_url: '',
+      admin_url: '',
+      repository_url: '',
+      development_url: '',
+      status: alias,
+      progress: 50,
+      owner: '',
+      tags: [],
+      summary: '',
+      current_tasks: [],
+      next_tasks: [],
+      blockers: [],
+      updated_at: '2026-08-08T00:00:00.000Z'
+    };
+    const preview = await request('/api/import/preview', {
+      method: 'POST',
+      body: JSON.stringify({ text: JSON.stringify(payload) })
+    });
+    assert.equal(preview.response.status, 200, JSON.stringify(preview.data));
+    assert.equal(preview.data.project.status, canonical);
+  }
+});
+
 test('AI更新の差分を表示できるデータを返し、履歴を残す', async () => {
   const payload = {
     schema_version: 1,

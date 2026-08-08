@@ -1,15 +1,15 @@
 {
   "name": "project-progress-manager",
-  "version": "0.2.0",
-  "description": "Analyze development projects and safely reflect verified progress and architecture diagrams in a local project register.",
+  "version": "0.3.0",
+  "description": "Analyze development projects and safely register them or reflect verified progress and architecture diagrams in a local project register.",
   "author": {
     "name": "Local developer"
   },
   "skills": "./skills/",
   "interface": {
     "displayName": "Project Progress Manager",
-    "shortDescription": "Verify project progress and architecture from any folder.",
-    "longDescription": "Inspects real repository evidence, previews project-status or architecture changes, and applies only explicitly authorized updates to a linked local project register.",
+    "shortDescription": "Register projects and verify progress or architecture from any folder.",
+    "longDescription": "Inspects real repository evidence, previews new registrations, project-status updates, or architecture changes, and writes to a local project register only when explicitly authorized.",
     "developerName": "Local developer",
     "category": "Productivity",
     "capabilities": [
@@ -17,9 +17,8 @@
       "Write"
     ],
     "defaultPrompt": [
-      "進捗を確認",
+      "台帳に新規登録",
       "進捗に反映",
-      "概念図を確認",
       "概念図に反映"
     ],
     "brandColor": "#16A34A"

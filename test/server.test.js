@@ -245,6 +245,35 @@ test('AI形式を確認してから新規登録する', async () => {
   });
   assert.equal(legacyPreview.response.status, 200);
   assert.equal(legacyPreview.data.project.adminUrl, '');
+
+  const repositoryRacePayloads = [
+    { ...payload, project_id: 'repository-race-a', name: 'Repository race A', repository_url: 'https://github.com/example/repository-race.git' },
+    { ...payload, project_id: 'repository-race-b', name: 'Repository race B', repository_url: 'https://github.com/example/repository-race/' }
+  ];
+  const repositoryRace = await Promise.all(repositoryRacePayloads.map((item, index) => request('/api/import/commit', {
+    method: 'POST',
+    body: JSON.stringify({
+      text: JSON.stringify(item),
+      source: 'codex-skill',
+      requestId: `repository-race-${index + 1}`
+    })
+  })));
+  assert.deepEqual(repositoryRace.map((item) => item.response.status).sort(), [201, 409]);
+  assert.equal(repositoryRace.find((item) => item.response.status === 409).data.code, 'REPOSITORY_CONFLICT');
+  const repositoryRaceWinnerIndex = repositoryRace.findIndex((item) => item.response.status === 201);
+  const repositoryRaceWinner = repositoryRace[repositoryRaceWinnerIndex].data.projectId;
+  const repositoryRaceCleanup = await request(`/api/projects/${repositoryRaceWinner}`, { method: 'DELETE' });
+  assert.equal(repositoryRaceCleanup.response.status, 200);
+  const missingReplay = await request('/api/import/commit', {
+    method: 'POST',
+    body: JSON.stringify({
+      text: JSON.stringify(repositoryRacePayloads[repositoryRaceWinnerIndex]),
+      source: 'codex-skill',
+      requestId: `repository-race-${repositoryRaceWinnerIndex + 1}`
+    })
+  });
+  assert.equal(missingReplay.response.status, 409);
+  assert.equal(missingReplay.data.code, 'REQUEST_REPLAY_MISSING');
 });
 
 test('AI更新の差分を表示できるデータを返し、履歴を残す', async () => {
@@ -300,6 +329,7 @@ test('AI更新の差分を表示できるデータを返し、履歴を残す', 
   });
   assert.equal(conflict.response.status, 409);
   assert.match(conflict.data.error, /request_id/);
+  assert.equal(conflict.data.code, 'REQUEST_ID_CONFLICT');
 });
 
 test('AI入力の具体的なエラーを返す', async () => {

@@ -1,0 +1,7 @@
+interface:
+  display_name: "プロジェクト新規登録"
+  short_description: "実際のコードを分析してプロジェクト台帳へ安全に新規登録"
+  default_prompt: "Use $register-project to analyze this repository and preview registering it in the project ledger."
+
+policy:
+  allow_implicit_invocation: true

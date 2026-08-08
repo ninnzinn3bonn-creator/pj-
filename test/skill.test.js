@@ -15,8 +15,12 @@ const SKILL_SCRIPT = path.join(
 const ARCHITECTURE_SKILL_SCRIPT = path.join(
   APP_ROOT, 'plugin', 'project-progress-manager', 'skills', 'project-architecture-update', 'scripts', 'update-architecture.mjs'
 );
+const REGISTRATION_SKILL_SCRIPT = path.join(
+  APP_ROOT, 'plugin', 'project-progress-manager', 'skills', 'register-project', 'scripts', 'register-project.mjs'
+);
 
 let temporaryDirectory;
+let registrationDirectory;
 let dataFile;
 let baseUrl;
 let server;
@@ -152,8 +156,81 @@ function runSkill(action, input) {
   return runScript(SKILL_SCRIPT, action, input);
 }
 
+async function runRegistration(arguments_, { cwd, input = '' } = {}) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [REGISTRATION_SKILL_SCRIPT, ...arguments_], {
+      cwd,
+      env: { ...process.env },
+      stdio: ['pipe', 'pipe', 'pipe']
+    });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (chunk) => { stdout += chunk.toString(); });
+    child.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
+    child.once('error', reject);
+    child.once('exit', (code) => resolve({ code, stdout, stderr }));
+    child.stdin.end(input);
+  });
+}
+
+function registrationPayload(projectId, overrides = {}) {
+  return {
+    schema_version: 1,
+    mode: 'create',
+    project_id: projectId,
+    name: '新規登録プロジェクト',
+    app_url: '',
+    admin_url: '',
+    repository_url: `https://github.com/example/${projectId}`,
+    development_url: '',
+    status: 'development',
+    progress: 25,
+    owner: '',
+    tags: ['Codex', '新規登録'],
+    summary: '登録スキルの統合テスト',
+    current_tasks: ['登録処理を検証する'],
+    next_tasks: ['進捗を更新する'],
+    blockers: [],
+    updated_at: '2026-08-08T01:00:00.000Z',
+    ...overrides
+  };
+}
+
+async function makeRegistrationWorkspace(name) {
+  const workspace = path.join(registrationDirectory, name);
+  await fs.mkdir(workspace, { recursive: true });
+  return workspace;
+}
+
+async function writeRegistrationPayload(workspace, projectId, overrides = {}, filename = 'project-status.json') {
+  const payload = registrationPayload(projectId, overrides);
+  const inputFile = path.join(workspace, filename);
+  await fs.writeFile(inputFile, JSON.stringify(payload, null, 2), 'utf8');
+  return { inputFile, payload };
+}
+
+function registrationArguments(action, workspace, inputFile, extraArguments = []) {
+  return [action, '--file', inputFile, '--url', baseUrl, '--root', workspace, ...extraArguments];
+}
+
+async function fetchProject(projectId) {
+  const response = await fetch(`${baseUrl}/api/projects/${encodeURIComponent(projectId)}`);
+  const data = await response.json();
+  return { response, data };
+}
+
+function parseRegistrationError(result) {
+  assert.notEqual(result.code, 0, result.stdout);
+  const parsed = JSON.parse(result.stderr);
+  assert.equal(parsed.ok, false);
+  assert.equal(typeof parsed.error?.code, 'string');
+  assert.equal(typeof parsed.error?.message, 'string');
+  return parsed.error;
+}
+
 test.before(async () => {
   temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'project-manager-skill-'));
+  registrationDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'project-manager-register-skill-'));
   dataFile = path.join(temporaryDirectory, 'projects.json');
   await fs.writeFile(dataFile, JSON.stringify({
     schemaVersion: 1,
@@ -188,6 +265,7 @@ test.before(async () => {
 test.after(async () => {
   await stopServer();
   await fs.rm(temporaryDirectory, { recursive: true, force: true });
+  await fs.rm(registrationDirectory, { recursive: true, force: true });
 });
 
 test('スキル付属スクリプトがプレビュー後にcodex-skillとして反映する', async () => {
@@ -267,4 +345,237 @@ test('両スキルが値のない--fileを拒否する', async () => {
     assert.equal(result.code, 1);
     assert.match(result.stderr, /--fileのパスを指定してください/);
   }
+});
+
+test('新規登録スキルのpreviewは台帳と関連付けを変更しない', async () => {
+  const workspace = await makeRegistrationWorkspace('preview-only');
+  const { inputFile } = await writeRegistrationPayload(workspace, 'registration-preview');
+  const storeBefore = await fs.readFile(dataFile, 'utf8');
+  const filesBefore = await fs.readdir(workspace);
+
+  const result = await runRegistration(
+    registrationArguments('--preview', workspace, inputFile),
+    { cwd: workspace }
+  );
+
+  assert.equal(result.code, 0, result.stderr);
+  const output = JSON.parse(result.stdout);
+  assert.equal(output.ok, true);
+  assert.equal(output.action, 'preview');
+  assert.equal(output.managerUrl, baseUrl);
+  assert.equal(output.projectId, 'registration-preview');
+  assert.equal(output.preview.mode, 'create');
+  assert.equal(output.preview.project.projectId, 'registration-preview');
+  assert.equal(output.preview.project.createdSource, 'codex-skill');
+  assert.equal(output.preview.project.lastUpdateSource, 'codex-skill');
+  assert.equal(await fs.readFile(dataFile, 'utf8'), storeBefore);
+  assert.deepEqual(await fs.readdir(workspace), filesBefore);
+  await assert.rejects(
+    fs.access(path.join(workspace, '.project-manager.json')),
+    { code: 'ENOENT' }
+  );
+  const lookup = await fetchProject('registration-preview');
+  assert.equal(lookup.response.status, 404);
+});
+
+test('新規登録スキルのapplyはcodex-skill由来で登録し正しい関連付けを作る', async () => {
+  const workspace = await makeRegistrationWorkspace('apply-create');
+  const { inputFile } = await writeRegistrationPayload(workspace, 'registration-apply');
+
+  const result = await runRegistration(
+    registrationArguments('--apply', workspace, inputFile),
+    { cwd: workspace }
+  );
+
+  assert.equal(result.code, 0, result.stderr);
+  const output = JSON.parse(result.stdout);
+  assert.equal(output.ok, true);
+  assert.equal(output.action, 'apply');
+  assert.equal(output.applied, true);
+  assert.equal(output.replayed, false);
+  assert.match(output.requestId, /^register-registration-apply-[a-f0-9]{32}$/);
+  assert.equal(output.project.projectId, 'registration-apply');
+  assert.equal(output.project.createdSource, 'codex-skill');
+  assert.equal(output.project.lastUpdateSource, 'codex-skill');
+  assert.equal(output.mapping.written, true);
+  assert.equal(path.resolve(output.mapping.path), path.join(workspace, '.project-manager.json'));
+
+  const stored = await fetchProject('registration-apply');
+  assert.equal(stored.response.status, 200);
+  assert.equal(stored.data.createdSource, 'codex-skill');
+  assert.equal(stored.data.lastUpdateSource, 'codex-skill');
+  const mapping = JSON.parse(await fs.readFile(path.join(workspace, '.project-manager.json'), 'utf8'));
+  assert.deepEqual(mapping, {
+    schema_version: 1,
+    project_id: 'registration-apply',
+    manager_url: baseUrl
+  });
+
+  const repeated = await runRegistration(
+    registrationArguments('--apply', workspace, inputFile),
+    { cwd: workspace }
+  );
+  assert.equal(parseRegistrationError(repeated).code, 'MAPPING_EXISTS');
+
+  const collisionWorkspace = await makeRegistrationWorkspace('apply-id-collision');
+  const collision = await writeRegistrationPayload(collisionWorkspace, 'registration-apply', {
+    repository_url: 'https://github.com/example/registration-apply-collision'
+  });
+  const storeBefore = await fs.readFile(dataFile, 'utf8');
+  const collided = await runRegistration(
+    registrationArguments('--preview', collisionWorkspace, collision.inputFile),
+    { cwd: collisionWorkspace }
+  );
+  assert.equal(parseRegistrationError(collided).code, 'PROJECT_ID_CONFLICT');
+  assert.equal(await fs.readFile(dataFile, 'utf8'), storeBefore);
+  await assert.rejects(
+    fs.access(path.join(collisionWorkspace, '.project-manager.json')),
+    { code: 'ENOENT' }
+  );
+
+  const repositoryCollisionWorkspace = await makeRegistrationWorkspace('apply-repository-collision');
+  const repositoryCollision = await writeRegistrationPayload(
+    repositoryCollisionWorkspace,
+    'registration-repository-collision',
+    { repository_url: 'https://github.com/example/registration-apply' }
+  );
+  const repositoryCollided = await runRegistration(
+    registrationArguments('--preview', repositoryCollisionWorkspace, repositoryCollision.inputFile),
+    { cwd: repositoryCollisionWorkspace }
+  );
+  assert.equal(parseRegistrationError(repositoryCollided).code, 'REPOSITORY_CONFLICT');
+  await assert.rejects(
+    fs.access(path.join(repositoryCollisionWorkspace, '.project-manager.json')),
+    { code: 'ENOENT' }
+  );
+
+  const requestConflictWorkspace = await makeRegistrationWorkspace('apply-request-id-collision');
+  const requestConflict = await writeRegistrationPayload(
+    requestConflictWorkspace,
+    'registration-request-id-collision'
+  );
+  const requestConflicted = await runRegistration(
+    registrationArguments('--apply', requestConflictWorkspace, requestConflict.inputFile, [
+      '--request-id',
+      output.requestId
+    ]),
+    { cwd: requestConflictWorkspace }
+  );
+  assert.equal(parseRegistrationError(requestConflicted).code, 'REQUEST_ID_CONFLICT');
+  await assert.rejects(
+    fs.access(path.join(requestConflictWorkspace, '.project-manager.json')),
+    { code: 'ENOENT' }
+  );
+});
+
+test('新規登録スキルはmode=updateと既存の関連付けを拒否する', async () => {
+  const updateWorkspace = await makeRegistrationWorkspace('update-mode');
+  const update = await writeRegistrationPayload(updateWorkspace, 'registration-update-mode', { mode: 'update' });
+  const updateResult = await runRegistration(
+    registrationArguments('--preview', updateWorkspace, update.inputFile),
+    { cwd: updateWorkspace }
+  );
+  const updateError = parseRegistrationError(updateResult);
+  assert.equal(updateError.code, 'VALIDATION_ERROR');
+  assert.match(JSON.stringify(updateError.errors), /mode.*create/i);
+
+  const mappedWorkspace = await makeRegistrationWorkspace('already-mapped');
+  const mappingFile = path.join(mappedWorkspace, '.project-manager.json');
+  const existingMapping = JSON.stringify({
+    schema_version: 1,
+    project_id: 'skill-target',
+    manager_url: baseUrl
+  });
+  await fs.writeFile(mappingFile, existingMapping, 'utf8');
+  const mapped = await writeRegistrationPayload(mappedWorkspace, 'registration-mapped');
+  const storeBefore = await fs.readFile(dataFile, 'utf8');
+  const mappedResult = await runRegistration(
+    registrationArguments('--preview', mappedWorkspace, mapped.inputFile),
+    { cwd: mappedWorkspace }
+  );
+  assert.equal(parseRegistrationError(mappedResult).code, 'MAPPING_EXISTS');
+  assert.equal(await fs.readFile(mappingFile, 'utf8'), existingMapping);
+  assert.equal(await fs.readFile(dataFile, 'utf8'), storeBefore);
+  const lookup = await fetchProject('registration-mapped');
+  assert.equal(lookup.response.status, 404);
+});
+
+test('新規登録スキルは不正なID・URL・値のない--fileを拒否する', async () => {
+  const storeBefore = await fs.readFile(dataFile, 'utf8');
+  const invalidIdWorkspace = await makeRegistrationWorkspace('invalid-id');
+  const invalidId = await writeRegistrationPayload(invalidIdWorkspace, 'invalid-id', {
+    project_id: '日本語_ID'
+  });
+  const invalidIdResult = await runRegistration(
+    registrationArguments('--preview', invalidIdWorkspace, invalidId.inputFile),
+    { cwd: invalidIdWorkspace }
+  );
+  const invalidIdError = parseRegistrationError(invalidIdResult);
+  assert.equal(invalidIdError.code, 'VALIDATION_ERROR');
+  assert.match(JSON.stringify(invalidIdError.errors), /project_id|プロジェクトID/);
+
+  const invalidUrlWorkspace = await makeRegistrationWorkspace('invalid-url');
+  const invalidUrl = await writeRegistrationPayload(invalidUrlWorkspace, 'registration-invalid-url');
+  const invalidUrlResult = await runRegistration([
+    '--preview', '--file', invalidUrl.inputFile, '--url', 'ftp://127.0.0.1:4170', '--root', invalidUrlWorkspace
+  ], { cwd: invalidUrlWorkspace });
+  const invalidUrlError = parseRegistrationError(invalidUrlResult);
+  assert.match(invalidUrlError.message, /URL|http/i);
+
+  const missingFileWorkspace = await makeRegistrationWorkspace('missing-file-value');
+  const missingFileResult = await runRegistration([
+    '--preview', '--file', '--url', baseUrl, '--root', missingFileWorkspace
+  ], { cwd: missingFileWorkspace });
+  const missingFileError = parseRegistrationError(missingFileResult);
+  assert.equal(missingFileError.code, 'ARGUMENT_ERROR');
+  assert.match(missingFileError.message, /--file/);
+
+  const helpResult = await runRegistration(['--help'], { cwd: missingFileWorkspace });
+  assert.equal(helpResult.code, 0, helpResult.stderr);
+  assert.match(helpResult.stdout, /Usage:/);
+  assert.match(helpResult.stdout, /--preview/);
+  assert.match(helpResult.stdout, /--apply/);
+  assert.equal(await fs.readFile(dataFile, 'utf8'), storeBefore);
+  for (const workspace of [invalidIdWorkspace, invalidUrlWorkspace, missingFileWorkspace]) {
+    await assert.rejects(
+      fs.access(path.join(workspace, '.project-manager.json')),
+      { code: 'ENOENT' }
+    );
+  }
+});
+
+test('新規登録スキルは日本語の作業パスとUTF-8 JSONを扱う', async () => {
+  const workspace = await makeRegistrationWorkspace('日本語プロジェクト');
+  const { inputFile } = await writeRegistrationPayload(
+    workspace,
+    'registration-japanese-path',
+    {
+      name: '日本語パスのプロジェクト',
+      summary: '日本語の説明をUTF-8のまま登録する',
+      current_tasks: ['日本語ファイルを検証中'],
+      next_tasks: ['別のパソコンで確認する']
+    },
+    '新規登録データ.json'
+  );
+
+  const preview = await runRegistration(
+    registrationArguments('--preview', workspace, inputFile),
+    { cwd: workspace }
+  );
+  assert.equal(preview.code, 0, preview.stderr);
+  assert.equal(JSON.parse(preview.stdout).preview.project.name, '日本語パスのプロジェクト');
+
+  const applied = await runRegistration(
+    registrationArguments('--apply', workspace, inputFile),
+    { cwd: workspace }
+  );
+  assert.equal(applied.code, 0, applied.stderr);
+  assert.equal(JSON.parse(applied.stdout).project.summary, '日本語の説明をUTF-8のまま登録する');
+  const stored = await fetchProject('registration-japanese-path');
+  assert.equal(stored.response.status, 200);
+  assert.equal(stored.data.name, '日本語パスのプロジェクト');
+  assert.deepEqual(stored.data.currentTasks, ['日本語ファイルを検証中']);
+  const mapping = JSON.parse(await fs.readFile(path.join(workspace, '.project-manager.json'), 'utf8'));
+  assert.equal(mapping.project_id, 'registration-japanese-path');
+  assert.equal(mapping.manager_url, baseUrl);
 });

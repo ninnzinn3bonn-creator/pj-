@@ -7,8 +7,6 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 
-const NPM = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-
 function parseArguments(argv) {
   const options = { repository: '', branch: '', keep: false };
   for (let index = 0; index < argv.length; index += 1) {
@@ -23,6 +21,13 @@ function parseArguments(argv) {
     options[argument.slice(2)] = value;
   }
   return options;
+}
+
+function runNpm(args, options = {}) {
+  if (process.env.npm_execpath) {
+    return run(process.execPath, [process.env.npm_execpath, ...args], options);
+  }
+  return run('npm', args, options);
 }
 
 function run(command, args, options = {}) {
@@ -121,8 +126,8 @@ async function main() {
 
   try {
     await run('git', ['clone', '--depth', '1', '--single-branch', '--branch', branch, repository, cloneDirectory]);
-    await run(NPM, ['ci'], { cwd: cloneDirectory });
-    const tests = await run(NPM, ['test'], { cwd: cloneDirectory });
+    await runNpm(['ci'], { cwd: cloneDirectory });
+    const tests = await runNpm(['test'], { cwd: cloneDirectory });
     if (!/fail 0/.test(tests.stdout)) throw new Error('クローン先のテスト結果を確認できません。');
 
     const port = await availablePort();

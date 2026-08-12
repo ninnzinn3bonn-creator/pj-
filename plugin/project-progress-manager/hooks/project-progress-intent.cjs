@@ -11,7 +11,7 @@ function additionalContext(action) {
   if (action === 'apply') {
     return [
       'ユーザーは入力全体を「進捗に反映」とし、このターンでプロジェクト台帳への更新を明示的に承認した。',
-      'Project Progress Managerプラグインのproject-progress-updateスキルを使用すること。',
+      'Project Progress Managerプラグインの$project-progress-updateスキルを使用すること。',
       '現在位置に対応する.project-manager.jsonを必須とし、README・ソース・設定・TODO・Git状態・テスト結果を実際に調査すること。',
       'mode=updateかつ関連付け済みproject_idのproject-status JSONを生成し、スキル付属スクリプトの--applyで検証後に1回だけ反映すること。',
       '対象を推測せず、関連付けがない場合は更新しないこと。削除操作は行わないこと。',
@@ -20,7 +20,7 @@ function additionalContext(action) {
   }
   return [
     'ユーザーは入力全体を「進捗を確認」とし、プロジェクト台帳向けの進捗分析とプレビューを求めている。',
-    'Project Progress Managerプラグインのproject-progress-updateスキルを使用すること。',
+    'Project Progress Managerプラグインの$project-progress-updateスキルを使用すること。',
     '実際のファイルとテスト結果からproject-status JSONを生成し、スキル付属スクリプトの--previewまで実行すること。',
     '台帳への書き込みは行わないこと。',
     safety

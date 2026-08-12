@@ -6,11 +6,11 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const { spawn } = require('node:child_process');
 
-const WORKSPACE_ROOT = path.resolve(__dirname, '..', '..');
-const HOOK_CONFIG = path.join(WORKSPACE_ROOT, '.codex', 'hooks.json');
-const HOOK_SCRIPT = path.join(WORKSPACE_ROOT, '.codex', 'hooks', 'project-progress-intent.js');
-const PLUGIN_ROOT = path.join(WORKSPACE_ROOT, 'project-manager', 'plugin', 'project-progress-manager');
+const WORKSPACE_ROOT = path.resolve(__dirname, '..');
+const PLUGIN_ROOT = path.join(WORKSPACE_ROOT, 'plugin', 'project-progress-manager');
+const HOOK_CONFIG = path.join(PLUGIN_ROOT, 'hooks', 'hooks.json');
 const PLUGIN_HOOK_SCRIPT = path.join(PLUGIN_ROOT, 'hooks', 'project-progress-intent.cjs');
+const HOOK_SCRIPT = PLUGIN_HOOK_SCRIPT;
 
 async function runHookAt(script, prompt, overrides = {}) {
   const input = JSON.stringify({
@@ -46,7 +46,7 @@ test('フック設定がUserPromptSubmitコマンドを参照する', async () =
   const config = JSON.parse(await fs.readFile(HOOK_CONFIG, 'utf8'));
   const handler = config.hooks.UserPromptSubmit[0].hooks[0];
   assert.equal(handler.type, 'command');
-  assert.match(handler.commandWindows, /project-progress-intent\.js/);
+  assert.match(handler.commandWindows, /project-progress-intent\.cjs/);
   await fs.access(HOOK_SCRIPT);
 });
 

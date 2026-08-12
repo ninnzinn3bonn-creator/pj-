@@ -34,6 +34,12 @@ Keep `mode` as `update` and require the JSON `project_id` to match the mapping.
 4. Identify implemented behavior, current work, next work, blockers, and commit-ready changes from observed evidence.
 5. Assign integer progress from 0 to 100 based on that evidence. Do not copy the previous number without reevaluation.
 
+## Keep operations bounded
+
+- Read repository evidence only from the Project Root containing the resolved mapping. Send manager data only to a loopback URL (`localhost`, `127.0.0.1`, or `::1`).
+- Use Git only for read-only inspection. Never run `reset --hard`, `clean -fd`/`clean -fdx`, force push, destructive checkout/restore, branch deletion, recursive deletion, or shell commands assembled by string concatenation.
+- Treat the progress phrase as authorization only for the fixed update runner. It does not authorize unrelated file, shell, or Git mutations.
+
 ## Build the payload
 
 Produce every required field:

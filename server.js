@@ -6,6 +6,9 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 const { spawn } = require('node:child_process');
 const { version: APP_VERSION } = require('./package.json');
+const { assertLocalRequest } = require('./lib/local-access');
+const { assertSupportedNodeVersion } = require('./lib/runtime-version');
+const { saveJsonAtomic } = require('./lib/storage');
 const {
   architectureRevision,
   compareArchitectures,
@@ -22,13 +25,15 @@ const {
   writeRecordAtomic: writeArchitectureRecordAtomic
 } = require('./lib/architecture-artifacts');
 
-const HOST = process.env.HOST || '0.0.0.0';
+const HOST = '127.0.0.1';
 const PORT = Number(process.env.PORT || 4170);
 const ROOT_DIR = __dirname;
 const PUBLIC_DIR = path.join(ROOT_DIR, 'public');
 const DATA_FILE = process.env.DATA_FILE || path.join(ROOT_DIR, 'data', 'projects.json');
 const ARTIFACTS_DIR = process.env.ARTIFACTS_DIR || path.join(path.dirname(DATA_FILE), 'artifacts');
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
+
+assertSupportedNodeVersion();
 const STATUSES = [
   'idea',
   'planning',
@@ -334,7 +339,7 @@ async function ensureDataFile() {
   try {
     await fs.access(DATA_FILE);
   } catch {
-    await fs.writeFile(DATA_FILE, JSON.stringify({ schemaVersion: 1, projects: [] }, null, 2), 'utf8');
+    await saveJsonAtomic(DATA_FILE, { schemaVersion: 1, projects: [] }, { backup: false });
   }
 }
 
@@ -357,21 +362,7 @@ async function readStore() {
 }
 
 async function writeStoreAtomic(store) {
-  const directory = path.dirname(DATA_FILE);
-  const temporaryFile = path.join(directory, `.projects-${process.pid}-${Date.now()}.tmp`);
-  const handle = await fs.open(temporaryFile, 'w');
-  try {
-    await handle.writeFile(`${JSON.stringify(store, null, 2)}\n`, 'utf8');
-    await handle.sync();
-  } finally {
-    await handle.close();
-  }
-  try {
-    await fs.rename(temporaryFile, DATA_FILE);
-  } catch (error) {
-    await fs.rm(temporaryFile, { force: true });
-    throw error;
-  }
+  await saveJsonAtomic(DATA_FILE, store);
 }
 
 function withWriteLock(operation) {
@@ -1189,6 +1180,7 @@ async function serveStatic(request, response, url) {
 
 const server = http.createServer(async (request, response) => {
   try {
+    assertLocalRequest(request);
     const url = new URL(request.url, `http://${request.headers.host || 'localhost'}`);
     if (url.pathname.startsWith('/api/')) await handleApi(request, response, url);
     else if (['GET', 'HEAD'].includes(request.method)) await serveStatic(request, response, url);
@@ -1204,7 +1196,7 @@ async function start() {
   server.listen(PORT, HOST, () => {
     const localUrl = `http://localhost:${PORT}`;
     console.log(`プロジェクト管理台帳を起動しました: ${localUrl}`);
-    console.log(`LAN共有時は http://このPCのIPアドレス:${PORT} を開いてください。`);
+    console.log('安全のため、この管理サイトはこのPCからだけ利用できます。');
     if (process.argv.includes('--open') && process.platform === 'win32') {
       const child = spawn('cmd', ['/c', 'start', '', localUrl], {
         detached: true,

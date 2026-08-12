@@ -1,6 +1,6 @@
 {
   "name": "project-progress-manager",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Analyze development projects and safely register them or reflect verified progress and architecture diagrams in a local project register.",
   "author": {
     "name": "Local developer"

@@ -3,6 +3,9 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import projectSafety from '../../../scripts/project-safety.cjs';
+
+const { inspectProjectRoot, normalizeLoopbackUrl } = projectSafety;
 
 const CONFIG_NAME = '.project-manager.json';
 const DEFAULT_HOST = '127.0.0.1';
@@ -89,44 +92,30 @@ function extractJson(text) {
 }
 
 async function assertRoot(root) {
-  let stats;
   try {
-    stats = await fs.stat(root);
+    return await inspectProjectRoot(root);
   } catch (error) {
     throw new Error(`プロジェクトルートを確認できません (${root}): ${error.message}`);
   }
-  if (!stats.isDirectory()) throw new Error(`--rootはディレクトリを指定してください: ${root}`);
 }
 
 async function findConfig(startDirectory) {
-  let directory = path.resolve(startDirectory);
-  while (true) {
-    const filename = path.join(directory, CONFIG_NAME);
-    try {
-      const data = JSON.parse(await fs.readFile(filename, 'utf8'));
-      return { filename, data };
-    } catch (error) {
-      if (error.code !== 'ENOENT') throw new Error(`${filename}を読み込めません: ${error.message}`);
-    }
-    const parent = path.dirname(directory);
-    if (parent === directory) return null;
-    directory = parent;
+  const rootInfo = await inspectProjectRoot(startDirectory);
+  if (!rootInfo.mappingExists) return null;
+  try {
+    const data = JSON.parse(await fs.readFile(rootInfo.mappingPath, 'utf8'));
+    return { filename: rootInfo.mappingPath, data };
+  } catch (error) {
+    throw new Error(`${rootInfo.mappingPath}を読み込めません: ${error.message}`);
   }
 }
 
 function normalizeManagerUrl(value) {
-  let parsed;
   try {
-    parsed = new URL(value);
-  } catch {
-    throw new Error(`管理サイトURLの形式が正しくありません: ${value}`);
+    return normalizeLoopbackUrl(value);
+  } catch (error) {
+    throw new Error(error.message);
   }
-  if (!['http:', 'https:'].includes(parsed.protocol)) {
-    throw new Error('管理サイトURLはhttp://またはhttps://で指定してください。');
-  }
-  parsed.hash = '';
-  parsed.search = '';
-  return parsed.toString().replace(/\/+$/, '');
 }
 
 function validateConfig(config) {
@@ -352,7 +341,8 @@ async function ensureMapping({ config, mappingPath, mapping }) {
 
 async function main() {
   const options = parseArguments(process.argv.slice(2));
-  await assertRoot(options.root);
+  const rootInfo = await assertRoot(options.root);
+  options.root = rootInfo.root;
   const payload = extractJson(await readInput(options.filename));
   const config = await findConfig(options.root);
   const linked = validateConfig(config);
@@ -376,7 +366,7 @@ async function main() {
 
   const projectId = payload.project.project_id;
   await verifyRegisteredProject(managerUrl, payload);
-  const mappingPath = linked?.filename || path.join(options.root, CONFIG_NAME);
+  const mappingPath = linked?.filename || rootInfo.mappingPath;
   const mapping = { schema_version: 1, project_id: projectId, manager_url: managerUrl };
   const previewResult = await requestJson(managerUrl, endpoint(projectId, 'preview'), {
     method: 'POST',

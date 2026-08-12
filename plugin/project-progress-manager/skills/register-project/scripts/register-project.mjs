@@ -3,6 +3,9 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import projectSafety from '../../../scripts/project-safety.cjs';
+
+const { inspectProjectRoot, normalizeLoopbackUrl } = projectSafety;
 
 const CONFIG_NAME = '.project-manager.json';
 const DEFAULT_HOST = '127.0.0.1';
@@ -315,18 +318,11 @@ function validatePayload(payload) {
 }
 
 function normalizeManagerUrl(value) {
-  let parsed;
   try {
-    parsed = new URL(value);
-  } catch {
-    throw new RunnerError('INVALID_MANAGER_URL', `管理サイトURLの形式が正しくありません: ${value}`);
+    return normalizeLoopbackUrl(value);
+  } catch (error) {
+    throw new RunnerError('INVALID_MANAGER_URL', error.message);
   }
-  if (!['http:', 'https:'].includes(parsed.protocol)) {
-    throw new RunnerError('INVALID_MANAGER_URL', '管理サイトURLは http:// または https:// で指定してください。');
-  }
-  parsed.hash = '';
-  parsed.search = '';
-  return parsed.toString().replace(/\/+$/, '');
 }
 
 async function requestJson(baseUrl, pathname, options = {}) {
@@ -434,31 +430,18 @@ async function resolveManagerUrl(explicitUrl) {
 }
 
 async function prepareRoot(root) {
-  let rootStats;
+  let rootInfo;
   try {
-    rootStats = await fs.stat(root);
+    rootInfo = await inspectProjectRoot(root);
   } catch (error) {
     throw new RunnerError('ROOT_ERROR', `プロジェクトルートを確認できません: ${root}`, { cause: error.message });
   }
-  if (!rootStats.isDirectory()) {
-    throw new RunnerError('ROOT_ERROR', `--root はディレクトリを指定してください: ${root}`);
-  }
-
-  const mappingPath = path.join(root, CONFIG_NAME);
-  try {
-    await fs.lstat(mappingPath);
-    throw new RunnerError('MAPPING_EXISTS', `${mappingPath} は既に存在します。既存の関連付けは上書きしません。`, {
-      mappingPath
+  if (rootInfo.mappingExists) {
+    throw new RunnerError('MAPPING_EXISTS', `${rootInfo.mappingPath} は既に存在します。既存の関連付けは上書きしません。`, {
+      mappingPath: rootInfo.mappingPath
     });
-  } catch (error) {
-    if (error instanceof RunnerError) throw error;
-    if (error.code !== 'ENOENT') {
-      throw new RunnerError('ROOT_ERROR', `関連付けファイルの有無を確認できません: ${mappingPath}`, {
-        cause: error.message
-      });
-    }
   }
-  return mappingPath;
+  return rootInfo;
 }
 
 function normalizedRepositoryUrl(value) {
@@ -559,7 +542,9 @@ function projectIdFromApi(project) {
 
 async function run() {
   const options = parseArguments(process.argv.slice(2));
-  const mappingPath = await prepareRoot(options.root);
+  const rootInfo = await prepareRoot(options.root);
+  options.root = rootInfo.root;
+  const mappingPath = rootInfo.mappingPath;
   const inputText = await readInput(options.filename);
   const payload = normalizePayload(extractJson(inputText));
   validatePayload(payload);

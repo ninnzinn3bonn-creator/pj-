@@ -3,6 +3,9 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
+import projectSafety from '../../../scripts/project-safety.cjs';
+
+const { normalizeLoopbackUrl } = projectSafety;
 
 const CONFIG_NAME = '.project-manager.json';
 
@@ -121,8 +124,9 @@ async function main() {
   const config = await findConfig(process.cwd());
   validateConfig(config);
   validatePayload(payload, config);
+  const managerUrl = normalizeLoopbackUrl(config.data.manager_url);
 
-  const previewResult = await requestJson(config.data.manager_url, '/api/import/preview', {
+  const previewResult = await requestJson(managerUrl, '/api/import/preview', {
     method: 'POST',
     body: JSON.stringify({ text })
   });
@@ -148,7 +152,7 @@ async function main() {
 
   const requestId = requestedId
     || `codex-${crypto.createHash('sha256').update(text).digest('hex').slice(0, 32)}`;
-  const commitResult = await requestJson(config.data.manager_url, '/api/import/commit', {
+  const commitResult = await requestJson(managerUrl, '/api/import/commit', {
     method: 'POST',
     body: JSON.stringify({ text, source: 'codex-skill', requestId })
   });

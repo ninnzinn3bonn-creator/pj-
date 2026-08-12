@@ -5,6 +5,12 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const { spawn } = require('node:child_process');
+const { normalizeLoopbackUrl } = require('../lib/local-access');
+const { inspectProjectRoot } = require('../lib/project-root');
+const { assertSupportedNodeVersion } = require('../lib/runtime-version');
+const { saveJsonAtomic } = require('../lib/storage');
+
+assertSupportedNodeVersion();
 
 const APP_ROOT = path.resolve(__dirname, '..');
 const CONFIG_NAME = '.project-manager.json';
@@ -42,11 +48,7 @@ function parseArguments(argv) {
 function normalizeUrl(value) {
   const text = String(value || '').trim().replace(/\/+$/, '');
   if (!text) return '';
-  const parsed = new URL(text);
-  if (!['http:', 'https:'].includes(parsed.protocol)) {
-    throw new Error('管理サイトURLはhttp://またはhttps://で指定してください。');
-  }
-  return parsed.toString().replace(/\/+$/, '');
+  return normalizeLoopbackUrl(text);
 }
 
 async function findProjectConfig(startDirectory = process.cwd()) {
@@ -474,19 +476,17 @@ async function commandLink(baseUrl, options, positionals) {
     throw new Error('project-manager link <project-id> の形式で、英数字とハイフンのIDを指定してください。');
   }
   await requestJson(baseUrl, `/api/projects/${encodeURIComponent(projectId)}`);
-  const filename = path.join(process.cwd(), CONFIG_NAME);
-  try {
-    await fs.access(filename);
-    if (!options.force) throw new Error(`${filename}は既に存在します。上書きする場合は--forceを指定してください。`);
-  } catch (error) {
-    if (error.code !== 'ENOENT') throw error;
+  const rootInfo = await inspectProjectRoot(process.cwd());
+  const filename = rootInfo.mappingPath;
+  if (rootInfo.mappingExists && !options.force) {
+    throw new Error(`${filename}は既に存在します。上書きする場合は--forceを指定してください。`);
   }
   const data = {
     schema_version: 1,
     project_id: projectId,
     manager_url: baseUrl
   };
-  await fs.writeFile(filename, `${JSON.stringify(data, null, 2)}\n`, 'utf8');
+  await saveJsonAtomic(filename, data, { backup: rootInfo.mappingExists, exclusive: !rootInfo.mappingExists });
   if (options.json) return print({ filename, ...data }, true);
   print(`${filename}を作成し、「${projectId}」へ関連付けました。`);
 }

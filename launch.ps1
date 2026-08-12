@@ -98,11 +98,17 @@ try {
     $nodeCommand = Get-Command node.exe -ErrorAction SilentlyContinue
     $nodePath = if ($nodeCommand) { $nodeCommand.Source } else { 'C:\Program Files\nodejs\node.exe' }
     if (-not (Test-Path -LiteralPath $nodePath)) {
-      Show-LauncherError 'Node.js was not found. Install Node.js 18 or later.'
+      Show-LauncherError 'Node.js was not found. Install Node.js 22 or 24.'
+      exit 1
+    }
+    $nodeVersion = (& $nodePath -p 'process.versions.node' 2>$null).Trim()
+    $nodeMajor = if ($nodeVersion -match '^(\d+)\.') { [int]$Matches[1] } else { 0 }
+    if ($nodeMajor -notin @(22, 24)) {
+      Show-LauncherError "Unsupported Node.js version: $nodeVersion. Install Node.js 22 or 24."
       exit 1
     }
 
-    $env:HOST = '0.0.0.0'
+    $env:HOST = '127.0.0.1'
     $env:PORT = [string]$activePort
     $serverProcess = Start-Process -FilePath $nodePath -ArgumentList ('"' + $serverScript + '"') -WorkingDirectory $projectRoot -WindowStyle Hidden -PassThru
     Save-ServerIdentity $activePort $serverProcess.Id

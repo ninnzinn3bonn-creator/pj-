@@ -139,7 +139,7 @@ test('配布プラグインの新規登録キーフレーズは確認と登録�
 test('配布プラグインにmanifestと3つのスキルが含まれる', async () => {
   const manifest = JSON.parse(await fs.readFile(path.join(PLUGIN_ROOT, '.codex-plugin', 'plugin.json'), 'utf8'));
   assert.equal(manifest.name, 'project-progress-manager');
-  assert.equal(manifest.version, '0.3.0');
+  assert.equal(manifest.version, '0.4.0');
   assert.deepEqual(manifest.interface.defaultPrompt, ['台帳に新規登録', '進捗に反映', '概念図に反映']);
   assert.equal(Object.hasOwn(manifest, 'hooks'), false);
   await fs.access(path.join(PLUGIN_ROOT, 'skills', 'project-progress-update', 'SKILL.md'));

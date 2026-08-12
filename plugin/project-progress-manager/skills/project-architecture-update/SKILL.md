@@ -16,7 +16,7 @@ Inspect the current project, create an evidence-backed `architecture-graph` docu
 
 ## Resolve the target
 
-Find `.project-manager.json` from the project root upward. When it exists, require `schema_version: 1`, `project_id`, and `manager_url`, and require `project.project_id` in the architecture JSON to equal the linked ID.
+Inspect `.project-manager.json` directly under the canonical Project Root. When it exists, require `schema_version: 1`, `project_id`, and `manager_url`, and require `project.project_id` in the architecture JSON to equal the linked ID.
 
 When it is missing, continue without asking the user to run `link`:
 
@@ -37,6 +37,12 @@ If no registered project can be identified uniquely, stop and report that ambigu
 6. Omit relationships that repository evidence does not support. Use an empty array when no reliable edge or flow exists.
 
 Ignore dependency, cache, generated-output, coverage, and VCS-internal directories unless their behavior is directly relevant.
+
+## Keep operations bounded
+
+- Read and write only inside the resolved Project Root, except for the temporary JSON supplied to the bundled runner. Send manager data only to a loopback URL (`localhost`, `127.0.0.1`, or `::1`).
+- Use Git only for read-only inspection. Never run `reset --hard`, `clean -fd`/`clean -fdx`, force push, destructive checkout/restore, branch deletion, recursive deletion, or shell commands assembled by string concatenation.
+- Treat the architecture phrase as authorization only for the fixed architecture runner. It does not authorize unrelated file, shell, or Git mutations.
 
 ## Build the document
 

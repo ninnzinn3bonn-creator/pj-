@@ -6,6 +6,7 @@ const fs = require('node:fs/promises');
 const os = require('node:os');
 const path = require('node:path');
 const net = require('node:net');
+const http = require('node:http');
 const crypto = require('node:crypto');
 const { spawn } = require('node:child_process');
 const { stableStringify } = require('../lib/architecture-artifacts');
@@ -60,10 +61,35 @@ async function stopServer() {
 async function request(urlPath, options = {}) {
   const response = await fetch(`${baseUrl}${urlPath}`, {
     ...options,
-    headers: options.body ? { 'Content-Type': 'application/json' } : undefined
+    headers: {
+      ...(options.body ? { 'Content-Type': 'application/json' } : {}),
+      ...(options.headers || {})
+    }
   });
   const text = await response.text();
   return { response, data: text ? JSON.parse(text) : null };
+}
+
+async function rawRequest(urlPath, options = {}) {
+  return new Promise((resolve, reject) => {
+    const request_ = http.request({
+      hostname: '127.0.0.1',
+      port,
+      path: urlPath,
+      method: options.method || 'GET',
+      headers: options.headers || {}
+    }, (response) => {
+      const chunks = [];
+      response.on('data', (chunk) => chunks.push(chunk));
+      response.on('end', () => {
+        const text = Buffer.concat(chunks).toString('utf8');
+        resolve({ response, data: text ? JSON.parse(text) : null });
+      });
+    });
+    request_.once('error', reject);
+    if (options.body) request_.write(options.body);
+    request_.end();
+  });
 }
 
 function architecturePayload(projectId, name, variant = 'v1') {
@@ -162,6 +188,27 @@ test('ヘルスチェックとCLIメタデータを返す', async () => {
   assert.equal(meta.response.status, 200);
   assert.equal(meta.data.triggerPhrases.apply, '進捗に反映');
   assert.ok(meta.data.supportedSources.includes('codex-skill'));
+});
+
+test('localhost以外のHostと同一Originでない変更操作を拒否する', async () => {
+  const hostileHost = await rawRequest('/api/health', { headers: { Host: `example.com:${port}` } });
+  assert.equal(hostileHost.response.statusCode, 403);
+  assert.match(hostileHost.data.error, /localhost/);
+
+  const crossOrigin = await request('/api/import/preview', {
+    method: 'POST',
+    headers: { Origin: 'http://example.com' },
+    body: JSON.stringify({ text: '{}' })
+  });
+  assert.equal(crossOrigin.response.status, 403);
+  assert.match(crossOrigin.data.error, /localhost|Origin/);
+
+  const sameOrigin = await request('/api/import/preview', {
+    method: 'POST',
+    headers: { Origin: baseUrl },
+    body: JSON.stringify({ text: '{}' })
+  });
+  assert.equal(sameOrigin.response.status, 400);
 });
 
 test('不正な進捗をサーバー側で拒否する', async () => {

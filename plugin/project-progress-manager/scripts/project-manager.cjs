@@ -4,6 +4,7 @@
 const fs = require('node:fs/promises');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const { inspectProjectRoot, normalizeLoopbackUrl, writeMappingAtomic } = require('./project-safety.cjs');
 
 const CONFIG_NAME = '.project-manager.json';
 const DEFAULT_URL = 'http://127.0.0.1:4170';
@@ -52,11 +53,7 @@ async function findProjectConfig(startDirectory = process.cwd()) {
 }
 
 function normalizeUrl(value) {
-  const parsed = new URL(String(value || '').trim());
-  if (!['http:', 'https:'].includes(parsed.protocol)) {
-    throw new Error('管理サイトURLはhttp://またはhttps://で指定してください。');
-  }
-  return parsed.toString().replace(/\/+$/, '');
+  return normalizeLoopbackUrl(value);
 }
 
 async function requestJson(baseUrl, pathname, options = {}) {
@@ -291,15 +288,11 @@ async function main() {
       throw new Error('link <project-id>の形式で英数字とハイフンのIDを指定してください。');
     }
     await requestJson(baseUrl, `/api/projects/${encodeURIComponent(projectId)}`);
-    const filename = path.join(process.cwd(), CONFIG_NAME);
-    try {
-      await fs.access(filename);
-      if (!options.force) throw new Error(`${filename}は既に存在します。上書きには--forceが必要です。`);
-    } catch (error) {
-      if (error.code !== 'ENOENT') throw error;
-    }
+    const rootInfo = await inspectProjectRoot(process.cwd());
+    const filename = rootInfo.mappingPath;
+    if (rootInfo.mappingExists && !options.force) throw new Error(`${filename}は既に存在します。上書きには--forceが必要です。`);
     const data = { schema_version: 1, project_id: projectId, manager_url: baseUrl };
-    await fs.writeFile(filename, `${JSON.stringify(data, null, 2)}\n`, 'utf8');
+    await writeMappingAtomic(rootInfo, data, { force: options.force });
     return print({ filename, ...data }, options.json);
   }
 

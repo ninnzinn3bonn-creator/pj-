@@ -6,7 +6,7 @@
 
 ## 必要環境
 
-- Node.js 18以上
+- Node.js 22または24（`.node-version`は24）
 - Windows 10または11（ランチャー利用時）
 - Edge、Chrome、Firefoxなどの新しいブラウザ
 
@@ -26,6 +26,8 @@ npm start
 ```
 
 ブラウザで `http://localhost:4170` を開いてください。
+
+サーバーは常に`127.0.0.1`へ待ち受けます。`HOST`環境変数を変更してもLANやインターネットには公開されません。ブラウザからの変更APIは同一Originだけを受け付け、CLIはlocalhostの管理URLだけへ接続します。
 
 ## 主な機能
 
@@ -63,6 +65,8 @@ project-manager link <project-id> --url http://127.0.0.1:4170
 ```
 
 これにより対象フォルダーへ`.project-manager.json`が作成されます。CodexスキルとCLIは、この関連付けと異なるプロジェクトIDへの反映を拒否します。
+
+関連付けの保存先は実体パスで確認したProject Root直下に固定されます。シンボリックリンクの`.project-manager.json`は拒否し、Codexの3スキルは用意された固定ランナー以外でファイルやGit状態を変更しません。
 
 Windows、特にWindows PowerShell 5.1では、日本語を含むJSONは`--file`で渡すことを推奨します。標準入力を使う場合は、ネイティブコマンドへ渡す文字コードを先にUTF-8へ設定してください。
 
@@ -128,14 +132,18 @@ node $runner --apply --file status.json --url http://127.0.0.1:4170 --root "<pro
 ```text
 data/
   projects.json
+  projects.json.bak
   artifacts/
     <project-id>/
       architecture.json
+      architecture.json.bak
 ```
 
-概念図をプロジェクト一覧JSONへ埋め込まないため、概念図が増えても一覧取得は重くなりません。書込みは一時ファイルを利用し、概念図単位で置き換えます。
+概念図をプロジェクト一覧JSONへ埋め込まないため、概念図が増えても一覧取得は重くなりません。プロジェクト一覧と概念図は`temp → rename`で原子的に置き換え、既存データを更新する直前に`.bak`へ1世代だけ保存します。
 
 バックアップ形式v2はプロジェクトと概念図を含みます。従来のv1バックアップも概念図なしとして読み込めます。
+
+保存データには形式バージョンがあります。プロジェクト一覧は`schemaVersion: 1`、概念図本体は`schema_version: 1`、概念図保存エンベロープは`storageSchemaVersion`で互換性を検証します。
 
 `data`内の実データ、ログ、PID、ポート情報、`.project-manager.json`はGit管理対象外です。
 
@@ -145,10 +153,17 @@ data/
 npm test
 npm run test:server
 npm run test:integration
+npm run test:fresh-clone
 ```
 
 サーバーAPI、CLI、Codexスキル、フック、冪等性、バックアップ、Windowsランチャーを一括確認します。
 
+`test:fresh-clone`は現在のGitリモートとブランチをOSの一時フォルダーへ新規クローンし、`npm ci`、全テスト、初回起動、手動登録、スキル登録、関連付け確認までを実行します。成功時は検証用フォルダーを安全確認後に削除し、失敗時は調査できるよう保持します。
+
+## GitHub Release
+
+配布版は`v1.1.0`のようなタグをpushすると、GitHub ActionsがNode.js 22と24の両方で全テストを実行し、成功時だけZIP付きGitHub Releaseを作成します。利用者はReleaseのZIPを展開し、Node.js 22または24で`start.bat`を起動してください。実データと`.project-manager.json`はGitに含まれません。
+
 ## 公開時の注意
 
-このアプリは信頼できるPCまたはプライベートLANでの利用を想定しています。初期状態では認証、HTTPS、利用者ごとの権限管理を備えていません。ルーターのポート開放やインターネットへの直接公開は行わないでください。
+このアプリは信頼できる1台のPC内での利用を想定しています。認証、HTTPS、利用者ごとの権限管理は備えていません。localhost限定を解除したり、リバースプロキシ経由でLAN・インターネットへ公開したりしないでください。

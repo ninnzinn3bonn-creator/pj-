@@ -37,6 +37,13 @@ The runner verifies both `/api/health` and `/api/meta`. Automatic probing must f
 
 Do not read or include secrets, credentials, private environment values, generated dependencies, or large build output.
 
+## Keep operations bounded
+
+- Read and write only inside the resolved Project Root, except for the temporary JSON supplied to the bundled runner. The runner canonicalizes the root and writes only its direct `.project-manager.json` child.
+- Send manager data only to a loopback URL (`localhost`, `127.0.0.1`, or `::1`).
+- Use Git only for read-only inspection. Never run `reset --hard`, `clean -fd`/`clean -fdx`, force push, destructive checkout/restore, branch deletion, recursive deletion, or shell commands assembled by string concatenation.
+- Treat the registration phrase as authorization only for the fixed registration runner. It does not authorize unrelated file, shell, or Git mutations.
+
 ## Build the payload
 
 Produce every field below and keep `mode` as `create`:

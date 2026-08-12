@@ -29,19 +29,19 @@
 
 .av-workspace {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 330px;
-  min-height: 680px;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  min-height: clamp(700px, calc(100vh - 180px), 900px);
   border: 1px solid var(--border-dark, #8b9097);
   background: #fff;
 }
 
-.av-graph-panel { display: grid; min-width: 0; grid-template-rows: auto minmax(500px, 1fr) auto; border-right: 1px solid var(--border-dark, #8b9097); }
+.av-graph-panel { display: grid; min-width: 0; grid-template-rows: auto minmax(560px, 1fr) auto; border-right: 1px solid var(--border-dark, #8b9097); }
 .av-panel-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; padding: 8px 12px; border-bottom: 1px solid var(--border, #c9ccd1); background: var(--surface-alt, #f7f7f7); }
 .av-panel-heading h3 { margin: 0; font-size: 15px; }
 .av-result-count { color: var(--muted, #656a70); font-size: 12px; }
-.av-graph-viewport { position: relative; min-height: 500px; overflow: hidden; background: #fafafa; touch-action: none; cursor: grab; }
+.av-graph-viewport { position: relative; min-height: 560px; overflow: hidden; background: #fafafa; touch-action: none; cursor: grab; }
 .av-graph-viewport.dragging { cursor: grabbing; }
-.av-graph { display: block; width: 100%; height: 100%; min-height: 500px; user-select: none; }
+.av-graph { display: block; width: 100%; height: 100%; min-height: 560px; user-select: none; }
 .av-group-band { fill-opacity: .08; stroke-width: 1; stroke-dasharray: 5 4; }
 .av-group-label { fill: #4c5055; font: 650 12px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; pointer-events: none; }
 .av-edge-line { fill: none; stroke: #777d84; stroke-width: 1.7; vector-effect: non-scaling-stroke; }
@@ -81,10 +81,10 @@
 .av-inspector-grid ul { margin: 0; font-size: 12px; overflow-wrap: anywhere; }
 .av-inspector-grid ul { padding-left: 17px; }
 
-.av-flow-panel { min-width: 0; background: #fff; }
+.av-flow-panel { min-width: 0; max-height: clamp(700px, calc(100vh - 180px), 900px); background: #fff; overflow-y: auto; }
 .av-flow-panel .av-panel-heading { position: sticky; top: 0; z-index: 2; }
 .av-flow-list { margin: 0; padding: 0; list-style: none; }
-.av-flow-button { width: 100%; min-height: 0; padding: 11px 12px; border: 0; border-bottom: 1px solid var(--border, #c9ccd1); text-align: left; }
+.av-flow-button { width: 100%; min-height: 0; padding: 9px 12px; border: 0; border-bottom: 1px solid var(--border, #c9ccd1); text-align: left; }
 .av-flow-button.active { border-left: 4px solid var(--av-accent); background: var(--av-accent-soft); padding-left: 8px; }
 .av-flow-button span { display: block; font-weight: 650; }
 .av-flow-button small { display: block; margin-top: 3px; color: var(--muted, #656a70); font-size: 12px; }
@@ -110,7 +110,9 @@
   .av-toolbar { grid-template-columns: 1fr 1fr; }
   .av-toolbar label:nth-child(2) { border-right: 0; }
   .av-view-controls { border-top: 1px solid var(--border, #c9ccd1); }
-  .av-graph-panel { grid-template-rows: auto 500px auto; }
+  .av-graph-panel { grid-template-rows: auto minmax(500px, 68vh) auto; }
+  .av-graph-viewport,
+  .av-graph { min-height: 500px; }
   .av-inspector-grid { grid-template-columns: 1fr; }
 }
 

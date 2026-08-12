@@ -90,7 +90,8 @@
       this.state = {
         activeFlowId: this.data.presentation?.default_flow_id || '',
         selectedNodeId: '', selectedEdgeId: '', search: '', group: '', type: '',
-        transform: { x: 40, y: 40, scale: 1 }, positions: new Map(), drag: null, viewTouched: false
+        transform: { x: 40, y: 40, scale: 1 }, positions: new Map(), drag: null,
+        viewTouched: false, fitMode: 'readable'
       };
       this.renderShell();
       this.bindStaticEvents();
@@ -156,19 +157,19 @@
         this.state.search = this.elements.search.value.trim().toLocaleLowerCase('ja');
         this.state.viewTouched = false;
         this.renderGraph();
-        requestAnimationFrame(() => this.fit());
+        requestAnimationFrame(() => this.fit('readable'));
       }, { signal });
       this.elements['group-filter'].addEventListener('change', () => {
         this.state.group = this.elements['group-filter'].value;
         this.state.viewTouched = false;
         this.renderGraph();
-        requestAnimationFrame(() => this.fit());
+        requestAnimationFrame(() => this.fit('readable'));
       }, { signal });
       this.elements['type-filter'].addEventListener('change', () => {
         this.state.type = this.elements['type-filter'].value;
         this.state.viewTouched = false;
         this.renderGraph();
-        requestAnimationFrame(() => this.fit());
+        requestAnimationFrame(() => this.fit('readable'));
       }, { signal });
       this.elements['clear-flow'].addEventListener('click', () => {
         this.state.activeFlowId = '';
@@ -177,7 +178,7 @@
       }, { signal });
       this.elements['zoom-in'].addEventListener('click', () => this.zoom(1.2), { signal });
       this.elements['zoom-out'].addEventListener('click', () => this.zoom(1 / 1.2), { signal });
-      this.elements['fit-view'].addEventListener('click', () => { this.state.viewTouched = false; this.fit(); }, { signal });
+      this.elements['fit-view'].addEventListener('click', () => { this.state.viewTouched = false; this.fit('all'); }, { signal });
       this.elements.viewport.addEventListener('wheel', (event) => {
         event.preventDefault();
         this.zoom(event.deltaY < 0 ? 1.12 : 1 / 1.12, event.clientX, event.clientY);
@@ -202,11 +203,11 @@
       };
       this.elements.viewport.addEventListener('pointerup', finishDrag, { signal });
       this.elements.viewport.addEventListener('pointercancel', finishDrag, { signal });
-      this.elements.viewport.addEventListener('dblclick', () => { this.state.viewTouched = false; this.fit(); }, { signal });
+      this.elements.viewport.addEventListener('dblclick', () => { this.state.viewTouched = false; this.fit('all'); }, { signal });
       this.elements.viewport.addEventListener('keydown', (event) => {
         if (['+', '='].includes(event.key)) { event.preventDefault(); this.zoom(1.2); return; }
         if (event.key === '-') { event.preventDefault(); this.zoom(1 / 1.2); return; }
-        if (event.key === '0') { event.preventDefault(); this.state.viewTouched = false; this.fit(); return; }
+        if (event.key === '0') { event.preventDefault(); this.state.viewTouched = false; this.fit('all'); return; }
         const movement = { ArrowLeft: [35, 0], ArrowRight: [-35, 0], ArrowUp: [0, 35], ArrowDown: [0, -35] }[event.key];
         if (!movement) return;
         event.preventDefault();
@@ -215,7 +216,7 @@
         this.state.viewTouched = true;
         this.updateTransform();
       }, { signal });
-      global.addEventListener('resize', () => { if (!this.state.viewTouched) requestAnimationFrame(() => this.fit()); }, { signal });
+      global.addEventListener('resize', () => { if (!this.state.viewTouched) requestAnimationFrame(() => this.fit(this.state.fitMode)); }, { signal });
     }
 
     setData(data) {
@@ -224,7 +225,7 @@
       this.data = structuredClone(data);
       Object.assign(this.state, {
         activeFlowId: data.presentation?.default_flow_id || '', selectedNodeId: '', selectedEdgeId: '',
-        search: '', group: '', type: '', viewTouched: false
+        search: '', group: '', type: '', viewTouched: false, fitMode: 'readable'
       });
       this.elements.search.value = '';
       this.elements.inspector.className = 'av-inspector empty';
@@ -442,7 +443,7 @@
       this.elements['flow-details'].innerHTML = active
         ? `<div class="av-flow-details"><h4>${escapeHtml(active.name)}</h4><p>${escapeHtml(active.description || '')}</p><ol>${(active.steps || []).map((step) => `<li><strong>${escapeHtml(step.title)}</strong>${escapeHtml(step.description)}</li>`).join('')}</ol></div>`
         : '<div class="av-flow-empty">フローを選択すると、関連ノードと接続を強調表示します。</div>';
-      this.elements['flow-list'].innerHTML = this.data.flows.map((flow) => `<li><button type="button" class="av-flow-button${flow.id === this.state.activeFlowId ? ' active' : ''}" data-av-flow-id="${escapeHtml(flow.id)}" aria-pressed="${flow.id === this.state.activeFlowId}"><span>${escapeHtml(flow.name)}</span><small>${escapeHtml(flow.description || '')}</small></button></li>`).join('');
+      this.elements['flow-list'].innerHTML = this.data.flows.map((flow) => `<li><button type="button" class="av-flow-button${flow.id === this.state.activeFlowId ? ' active' : ''}" data-av-flow-id="${escapeHtml(flow.id)}" aria-pressed="${flow.id === this.state.activeFlowId}"><span>${escapeHtml(flow.name)}</span><small>${flow.node_ids.length}コンポーネント / ${(flow.steps || []).length}ステップ</small></button></li>`).join('');
       this.elements['flow-list'].querySelectorAll('[data-av-flow-id]').forEach((button) => button.addEventListener('click', () => {
         const id = button.dataset.avFlowId;
         this.state.activeFlowId = this.state.activeFlowId === id ? '' : id;
@@ -462,7 +463,7 @@
       this.renderFlows();
       this.renderLegend();
       this.renderGraph();
-      if (fit) requestAnimationFrame(() => this.fit());
+      if (fit) requestAnimationFrame(() => this.fit('readable'));
     }
 
     updateTransform() {
@@ -471,7 +472,7 @@
       this.elements['zoom-level'].textContent = `${Math.round(scale * 100)}%`;
     }
 
-    fit() {
+    fit(mode = 'readable') {
       const visible = this.visibleComponents();
       if (!visible.length) return;
       const points = visible.map((component) => this.state.positions.get(component.id));
@@ -481,7 +482,10 @@
       const maxY = Math.max(...points.map((point) => point.y)) + NODE_HEIGHT + 50;
       const width = Math.max(1, this.elements.viewport.clientWidth);
       const height = Math.max(1, this.elements.viewport.clientHeight);
-      const scale = Math.min(1.35, Math.max(.28, Math.min(width / (maxX - minX), height / (maxY - minY))));
+      const fittedScale = Math.min(1.35, Math.max(.28, Math.min(width / (maxX - minX), height / (maxY - minY))));
+      const readableFloor = width < 520 ? .55 : width < 800 ? .62 : .68;
+      const scale = mode === 'all' ? fittedScale : Math.max(readableFloor, fittedScale);
+      this.state.fitMode = mode;
       this.state.transform = { x: (width - (maxX - minX) * scale) / 2 - minX * scale, y: (height - (maxY - minY) * scale) / 2 - minY * scale, scale };
       this.updateTransform();
     }

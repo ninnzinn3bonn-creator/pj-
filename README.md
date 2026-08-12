@@ -89,6 +89,8 @@ Get-Content -Raw -Encoding UTF8 architecture.json | project-manager architecture
 project-manager architecture export --output architecture.json
 ```
 
+Web画面の概念図ページでは「空の概念図を作成」からJSONテンプレートを生成し、その場で貼り付け・編集して内容確認後に保存できます。初期テンプレートは`human-stack-battle-20260715`を基準に、左→右レイアウトと`Actors / Client / Services / Data / Operations`のグループ順を使用します。
+
 `apply`は必ずサーバー側のプレビューを通してから保存します。同じ内容の再送、異なるプロジェクトID、古いrevisionによる競合を検出します。
 
 ### 新規登録JSON

@@ -129,12 +129,27 @@ test('静的画面を配信する', async () => {
   const html = await response.text();
   assert.match(html, /開発プロジェクト台帳/);
   assert.match(html, /CLI・Codex連携/);
+  assert.match(html, /class="action-menu header-tools"/);
+  const architectureDialogHeading = html.indexOf('id="architecture-import-title"');
+  const architectureDialogToolbar = html.indexOf('class="architecture-import-toolbar"');
+  const architectureDialogTextarea = html.indexOf('id="architecture-import-text"');
+  assert.ok(architectureDialogHeading >= 0);
+  assert.ok(architectureDialogHeading < architectureDialogToolbar);
+  assert.ok(architectureDialogToolbar < architectureDialogTextarea);
 
   const scriptResponse = await fetch(`${baseUrl}/app.js`);
   assert.equal(scriptResponse.status, 200);
   const script = await scriptResponse.text();
   assert.match(script, /data-copy-project-id/);
   assert.match(script, /プロジェクトIDをコピーしました。/);
+  assert.equal((script.match(/data-architecture-action="copy-prompt"/g) || []).length, 1);
+  assert.equal((script.match(/data-architecture-action="copy-json-prompt"/g) || []).length, 1);
+
+  const viewerResponse = await fetch(`${baseUrl}/architecture-viewer.js`);
+  assert.equal(viewerResponse.status, 200);
+  const viewerScript = await viewerResponse.text();
+  assert.match(viewerScript, /fit\('readable'\)/);
+  assert.match(viewerScript, /readableFloor/);
 });
 
 test('ヘルスチェックとCLIメタデータを返す', async () => {
@@ -459,6 +474,21 @@ test('プロジェクト別概念図をプレビューし、revision付きで原
   assert.equal(exported.response.status, 200);
   assert.deepEqual(exported.data, architecture);
   assert.match(exported.response.headers.get('content-disposition'), /ai-created-architecture\.json/);
+});
+
+test('概念図テンプレートはhuman-stack-battle形式で空JSONを返し保存しない', async () => {
+  const response = await request('/api/projects/manual-app/artifacts/architecture/template');
+  assert.equal(response.response.status, 200);
+  assert.equal(response.data.mode, 'template');
+  const architecture = response.data.architecture;
+  assert.equal(architecture.kind, 'architecture-graph');
+  assert.deepEqual(architecture.components, []);
+  assert.deepEqual(architecture.edges, []);
+  assert.deepEqual(architecture.flows, []);
+  assert.deepEqual(architecture.presentation.group_order, ['actors', 'client', 'services', 'data', 'operations']);
+  assert.equal(architecture.presentation.layout, 'left-to-right');
+  const missing = await request('/api/projects/manual-app/artifacts/architecture');
+  assert.equal(missing.response.status, 404);
 });
 
 test('architecture revisions ignore analysis timestamps but retain them on meaningful updates', async () => {

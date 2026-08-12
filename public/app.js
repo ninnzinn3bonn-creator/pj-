@@ -98,6 +98,8 @@ const elements = {
   confirmMessage: document.querySelector('#confirm-message'),
   architectureImportDialog: document.querySelector('#architecture-import-dialog'),
   architectureImportFile: document.querySelector('#architecture-import-file'),
+  architectureImportText: document.querySelector('#architecture-import-text'),
+  architectureTemplateButton: document.querySelector('#architecture-template-button'),
   architectureImportError: document.querySelector('#architecture-import-error'),
   architectureImportPreview: document.querySelector('#architecture-import-preview'),
   architectureImportCommit: document.querySelector('#architecture-import-commit-button')
@@ -377,13 +379,18 @@ function renderDetail(project) {
         </div>
       </div>
       <div class="detail-actions">
-        ${project.appUrl ? `<a class="button-link" href="${escapeHtml(project.appUrl)}" target="_blank" rel="noopener noreferrer">URLを開く</a>` : ''}
-        ${project.adminUrl ? `<a class="button-link" href="${escapeHtml(project.adminUrl)}" target="_blank" rel="noopener noreferrer">管理者サイトを開く</a>` : ''}
-        ${project.repositoryUrl ? `<a class="button-link" href="${escapeHtml(project.repositoryUrl)}" target="_blank" rel="noopener noreferrer">リポジトリを開く</a>` : ''}
-        <button type="button" data-detail-action="copy-update">更新用プロンプトをコピー</button>
         <button type="button" data-detail-action="ai-update">AI出力で更新</button>
         <button type="button" data-detail-action="edit" class="primary">手動編集</button>
-        <button type="button" data-detail-action="delete" class="danger-text">削除</button>
+        <details class="action-menu">
+          <summary>その他の操作</summary>
+          <div class="action-menu-panel">
+            ${project.appUrl ? `<a class="button-link" href="${escapeHtml(project.appUrl)}" target="_blank" rel="noopener noreferrer">URLを開く</a>` : ''}
+            ${project.adminUrl ? `<a class="button-link" href="${escapeHtml(project.adminUrl)}" target="_blank" rel="noopener noreferrer">管理者サイトを開く</a>` : ''}
+            ${project.repositoryUrl ? `<a class="button-link" href="${escapeHtml(project.repositoryUrl)}" target="_blank" rel="noopener noreferrer">リポジトリを開く</a>` : ''}
+            <button type="button" data-detail-action="copy-update">更新用プロンプトをコピー</button>
+            <button type="button" data-detail-action="delete" class="danger-text">削除</button>
+          </div>
+        </details>
       </div>
     </div>
     <div class="detail-grid">
@@ -455,6 +462,48 @@ function architecturePrompt() {
   return '概念図に反映';
 }
 
+function architectureJsonPrompt(project) {
+  const projectId = JSON.stringify(project.projectId);
+  const projectName = JSON.stringify(project.name);
+  return [
+    `プロジェクト「${project.name}」（project_id: ${project.projectId}）のコードリポジトリ／ディレクトリ全体を詳細に分析してください。`,
+    '',
+    'README、ソースコード、設定ファイル、テスト、TODO、Gitの状態を実際に確認し、推測で依存関係や未実装部分を追加しないでください。',
+    '',
+    '分析結果を、human-stack-battle-20260715の概念図を見本にした、見やすい左から右へ流れる architecture-graph JSON として出力してください。',
+    '',
+    '必須条件:',
+    '- JSONの前後に説明を書かず、JSONだけを返す',
+    '- schema_version は 1、kind は architecture-graph',
+    `- project.project_id は "${project.projectId}"`,
+    '- groups、components、edges、flows、presentation を必ず含める',
+    '- componentsのgroup、edgesのsource/target、flowsのnode_ids/edge_idsは必ず実在するIDを参照する',
+    '- IDは英数字とハイフンを中心に一意にする',
+    '- components.files には実在するファイルだけを記載する',
+    '- コンポーネントは論理単位でまとめ、全ファイルを1ノードにしない',
+    '- presentation.layout は left-to-right',
+    '- presentation.group_order は actors, client, services, data, operations の順',
+    '- presentation.primary_flow は主要フローID（なければ空文字）',
+    '- URLはhttp/httpsまたは空文字にする',
+    '',
+    '出力するJSONのトップレベル構造:',
+    '{',
+    '  "schema_version": 1,',
+    '  "kind": "architecture-graph",',
+    '  "document": {},',
+    `  "project": { "project_id": ${projectId}, "name": ${projectName} },`,
+    '  "groups": [],',
+    '  "components": [],',
+    '  "edges": [],',
+    '  "flows": [],',
+    '  "presentation": {},',
+    '  "extensions": {}',
+    '}',
+    '',
+    '既存の architecture-graph スキーマに完全準拠し、実際のコードに基づく内容だけを出力してください。'
+  ].join('\n');
+}
+
 function renderArchitecturePageContent(project, meta, documentData = null) {
   const presentation = architectureStatusPresentation(meta.status);
   const counts = documentData ? {
@@ -477,17 +526,23 @@ function renderArchitecturePageContent(project, meta, documentData = null) {
         <p>${escapeHtml(project.projectId)}${meta.analyzedAt ? ` / 解析 ${escapeHtml(formatDate(meta.analyzedAt))}` : ''}${documentData ? ` / ${counts.components}コンポーネント・${counts.edges}接続・${counts.flows}フロー` : ''}</p>
       </div>
       <div class="architecture-page-actions" aria-label="概念図のデータ操作">
-        <button type="button" data-architecture-action="copy-prompt">Codexキーフレーズをコピー</button>
+        <button type="button" class="primary" data-architecture-action="copy-prompt">Codexで作成・更新</button>
         <button type="button" data-architecture-action="import">JSONを読み込む</button>
-        ${documentData ? '<button type="button" data-architecture-action="export">JSONを書き出す</button>' : ''}
-        <button type="button" data-architecture-action="refresh">再読み込み</button>
+        <details class="action-menu">
+          <summary>その他の操作</summary>
+          <div class="action-menu-panel">
+            <button type="button" data-architecture-action="copy-json-prompt">AI用JSONプロンプトをコピー</button>
+            ${documentData ? '<button type="button" data-architecture-action="export">JSONを書き出す</button>' : ''}
+            <button type="button" data-architecture-action="refresh">再読み込み</button>
+          </div>
+        </details>
       </div>
     </div>
     <p class="architecture-codex-note">Codexで作成・更新する場合は、関連付け済みの対象プロジェクトをCodexで開き、コピーしたキーフレーズだけを貼り付けてください。</p>
     ${notice}
     ${documentData
       ? '<div id="architecture-viewer-root"></div>'
-      : `<div class="architecture-empty"><h3>${meta.status === 'error' ? '概念図を表示できません' : '概念図はまだありません'}</h3><p>${escapeHtml(presentation.description)} 対象プロジェクトをCodexで開いてキーフレーズを実行するか、作成済みJSONを読み込んでください。</p><div class="architecture-empty-actions"><button type="button" class="primary" data-architecture-action="copy-prompt">Codexキーフレーズをコピー</button><button type="button" data-architecture-action="import">JSONを読み込む</button></div></div>`}`;
+      : `<div class="architecture-empty"><h3>${meta.status === 'error' ? '概念図を表示できません' : '概念図はまだありません'}</h3><p>${escapeHtml(presentation.description)} 上の「Codexで作成・更新」を使うか、作成済みJSONを読み込んでください。</p></div>`}`;
   elements.architectureUpdated.textContent = meta.analyzedAt ? `概念図更新 ${formatDate(meta.analyzedAt)}` : '';
   if (documentData) {
     const root = document.querySelector('#architecture-viewer-root');
@@ -580,6 +635,7 @@ function openArchitectureImport(project) {
   state.architectureImportData = null;
   state.architectureImportPreview = null;
   elements.architectureImportFile.value = '';
+  elements.architectureImportText.value = '';
   elements.architectureImportPreview.hidden = true;
   elements.architectureImportPreview.innerHTML = '';
   elements.architectureImportCommit.hidden = true;
@@ -589,10 +645,25 @@ function openArchitectureImport(project) {
   requestAnimationFrame(() => elements.architectureImportFile.focus());
 }
 
+async function createArchitectureTemplate() {
+  const projectId = elements.architectureImportDialog.dataset.projectId;
+  clearInlineError(elements.architectureImportError);
+  try {
+    const response = await api(`${architectureBasePath(projectId)}/template`);
+    elements.architectureImportText.value = JSON.stringify(response.architecture || response, null, 2);
+    elements.architectureImportText.focus();
+  } catch (error) {
+    showInlineError(elements.architectureImportError, error);
+  }
+}
+
 async function previewArchitectureImport() {
   const projectId = elements.architectureImportDialog.dataset.projectId;
   const project = state.projects.find((item) => item.projectId === projectId);
-  const file = elements.architectureImportFile.files[0];
+  const selectedFile = elements.architectureImportFile.files[0];
+  const file = selectedFile || (elements.architectureImportText.value.trim()
+    ? { size: new Blob([elements.architectureImportText.value]).size, text: async () => elements.architectureImportText.value }
+    : null);
   clearInlineError(elements.architectureImportError);
   elements.architectureImportPreview.hidden = true;
   elements.architectureImportCommit.hidden = true;
@@ -1037,7 +1108,10 @@ document.querySelector('#backup-preview-button').addEventListener('click', previ
 elements.backupCommit.addEventListener('click', commitBackup);
 document.querySelector('#architecture-import-preview-button').addEventListener('click', previewArchitectureImport);
 elements.architectureImportCommit.addEventListener('click', commitArchitectureImport);
+elements.architectureTemplateButton.addEventListener('click', createArchitectureTemplate);
 elements.architectureImportFile.addEventListener('change', () => {
+  const file = elements.architectureImportFile.files[0];
+  if (file) file.text().then((text) => { elements.architectureImportText.value = text; }).catch(() => {});
   state.architectureImportData = null;
   state.architectureImportPreview = null;
   elements.architectureImportPreview.hidden = true;
@@ -1118,12 +1192,15 @@ elements.architectureContent.addEventListener('click', (event) => {
   const project = state.projects.find((item) => item.projectId === currentDetailId());
   if (!project) return;
   if (action === 'copy-prompt') copyText(architecturePrompt(), 'Codexキーフレーズ「概念図に反映」をコピーしました。');
+  if (action === 'copy-json-prompt') copyText(architectureJsonPrompt(project), 'AI用の概念図JSON生成プロンプトをコピーしました。');
   if (action === 'import') openArchitectureImport(project);
   if (action === 'export') exportArchitecture(project);
   if (action === 'refresh') void renderArchitecturePage(project);
 });
 
 document.addEventListener('click', async (event) => {
+  const menuItem = event.target.closest('.action-menu-panel button, .action-menu-panel a');
+  if (menuItem) menuItem.closest('details.action-menu')?.removeAttribute('open');
   const button = event.target.closest('[data-copy-project-id]');
   if (!button) return;
   await copyText(button.dataset.copyProjectId, 'プロジェクトIDをコピーしました。');

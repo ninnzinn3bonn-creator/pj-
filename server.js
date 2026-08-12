@@ -505,6 +505,30 @@ function architectureMeta(projectId, record = null) {
   };
 }
 
+function architectureTemplate(project) {
+  const now = nowIso();
+  return {
+    schema_version: 1,
+    kind: 'architecture-graph',
+    document: { id: `${project.projectId}-architecture`, title: `${project.name} architecture`, summary: '空の概念図テンプレート', generated_at: now },
+    project: {
+      project_id: project.projectId, name: project.name, summary: project.summary || '', version: '', analyzed_at: now,
+      source_root: '.', app_url: project.appUrl || '', admin_url: project.adminUrl || '', repository_url: project.repositoryUrl || '',
+      development_url: project.developmentUrl || '', status: project.status || '', progress: Number.isInteger(project.progress) ? project.progress : 0,
+      tags: Array.isArray(project.tags) ? project.tags : []
+    },
+    groups: [
+      { id: 'actors', name: 'Actors', description: 'Users and external actors', color: '#F59E0B' },
+      { id: 'client', name: 'Client', description: 'Browser or app-facing components', color: '#3B82F6' },
+      { id: 'services', name: 'Services', description: 'Application and infrastructure services', color: '#8B5CF6' },
+      { id: 'data', name: 'Data', description: 'Persistent and local data stores', color: '#64748B' },
+      { id: 'operations', name: 'Operations', description: 'Build, deployment, and operations', color: '#E11D48' }
+    ], components: [], edges: [], flows: [],
+    presentation: { layout: 'left-to-right', primary_flow: '', group_order: ['actors', 'client', 'services', 'data', 'operations'] },
+    extensions: { template: true, template_style: 'human-stack-battle-20260715' }
+  };
+}
+
 function assertProjectExists(store, projectId) {
   const project = store.projects.find((item) => item.projectId === projectId);
   if (!project) throw apiError(404, '指定されたプロジェクトが見つかりません。');
@@ -739,6 +763,13 @@ async function handleApi(request, response, url) {
     assertProjectExists(store, projectId);
     const record = await readArchitectureRecord(ARTIFACTS_DIR, projectId);
     return sendJson(response, 200, architectureMeta(projectId, record));
+  }
+
+  if (isArchitectureRoute && method === 'GET' && segments.length === 6 && segments[5] === 'template') {
+    const projectId = segments[2];
+    const store = await readStore();
+    const project = assertProjectExists(store, projectId);
+    return sendJson(response, 200, { architecture: architectureTemplate(project), projectId, mode: 'template' });
   }
 
   if (isArchitectureRoute && method === 'GET' && segments.length === 5) {

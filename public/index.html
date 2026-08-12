@@ -16,10 +16,15 @@
       <p class="header-note">アプリ、Webサイト、開発作業の状態をこのPCにまとめて保存します。</p>
     </div>
     <div class="header-actions" aria-label="全体操作">
-      <button type="button" id="cli-button">CLI連携</button>
-      <button type="button" id="copy-create-prompt">新規解析プロンプトをコピー</button>
-      <button type="button" id="export-button">JSONを書き出す</button>
-      <button type="button" id="backup-button">JSONを取り込む</button>
+      <details class="action-menu header-tools">
+        <summary>台帳ツール</summary>
+        <div class="action-menu-panel">
+          <button type="button" id="cli-button">CLI連携</button>
+          <button type="button" id="copy-create-prompt">新規解析プロンプトをコピー</button>
+          <button type="button" id="export-button">JSONを書き出す</button>
+          <button type="button" id="backup-button">JSONを取り込む</button>
+        </div>
+      </details>
     </div>
   </header>
 
@@ -237,14 +242,20 @@
       <h2 id="architecture-import-title">概念図JSONを取り込む</h2>
       <button type="button" class="icon-button" data-close-dialog aria-label="閉じる">×</button>
     </div>
-    <p class="form-note">対象プロジェクトと一致するarchitecture-graph JSONを選択してください。保存前に内容を検証します。</p>
-    <label class="file-label"><span>概念図JSON</span><input type="file" id="architecture-import-file" accept="application/json,.json"></label>
-    <div id="architecture-import-error" class="error-box" role="alert" hidden></div>
-    <div id="architecture-import-preview" class="preview-box" hidden></div>
-    <div class="dialog-actions">
-      <button type="button" data-close-dialog>キャンセル</button>
-      <button type="button" id="architecture-import-preview-button">内容を確認</button>
-      <button type="button" id="architecture-import-commit-button" class="primary" hidden>台帳へ保存</button>
+    <div class="dialog-body architecture-import-body">
+      <p class="form-note">対象プロジェクトと一致するarchitecture-graph JSONを貼り付けるか、JSONファイルを選択してください。保存前に内容を検証します。</p>
+      <div class="architecture-import-toolbar">
+        <button type="button" id="architecture-template-button">空の概念図を作成</button>
+        <label class="file-label"><span>JSONファイル</span><input type="file" id="architecture-import-file" accept="application/json,.json"></label>
+      </div>
+      <textarea id="architecture-import-text" class="code-input architecture-json-input" rows="18" spellcheck="false" placeholder="ここにarchitecture-graph JSONを貼り付けてください"></textarea>
+      <div id="architecture-import-error" class="error-box" role="alert" hidden></div>
+      <div id="architecture-import-preview" class="preview-box" hidden></div>
+      <div class="dialog-actions">
+        <button type="button" data-close-dialog>キャンセル</button>
+        <button type="button" id="architecture-import-preview-button">内容を確認</button>
+        <button type="button" id="architecture-import-commit-button" class="primary" hidden>台帳へ保存</button>
+      </div>
     </div>
   </dialog>
 

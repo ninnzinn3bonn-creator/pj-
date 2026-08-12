@@ -132,10 +132,10 @@ function architecturePayload(projectId = 'skill-target') {
   };
 }
 
-async function runScript(script, action, input, extraArguments = []) {
+async function runScript(script, action, input, extraArguments = [], cwd = temporaryDirectory) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [script, action, ...extraArguments], {
-      cwd: temporaryDirectory,
+      cwd,
       stdio: ['pipe', 'pipe', 'pipe']
     });
     let stdout = '';
@@ -591,4 +591,148 @@ test('新規登録スキルは日本語の作業パスとUTF-8 JSONを扱う', a
   const mapping = JSON.parse(await fs.readFile(path.join(workspace, '.project-manager.json'), 'utf8'));
   assert.equal(mapping.project_id, 'registration-japanese-path');
   assert.equal(mapping.manager_url, baseUrl);
+});
+
+test('配布スキルで新規登録から概念図登録と継続更新まで完走する', async () => {
+  const projectId = 'registration-full-lifecycle';
+  const workspace = await makeRegistrationWorkspace('full-lifecycle');
+  const { inputFile } = await writeRegistrationPayload(workspace, projectId, {
+    name: 'スキルライフサイクル対象',
+    progress: 10,
+    summary: '新規登録直後'
+  });
+
+  const registrationPreview = await runRegistration(
+    registrationArguments('--preview', workspace, inputFile),
+    { cwd: workspace }
+  );
+  assert.equal(registrationPreview.code, 0, registrationPreview.stderr);
+  assert.equal(JSON.parse(registrationPreview.stdout).preview.mode, 'create');
+
+  const registrationApply = await runRegistration(
+    registrationArguments('--apply', workspace, inputFile),
+    { cwd: workspace }
+  );
+  assert.equal(registrationApply.code, 0, registrationApply.stderr);
+  const registered = JSON.parse(registrationApply.stdout);
+  assert.equal(registered.applied, true);
+  assert.equal(registered.project.projectId, projectId);
+  assert.equal(registered.project.createdSource, 'codex-skill');
+  assert.equal(registered.mapping.written, true);
+
+  const initialArchitecture = architecturePayload(projectId);
+  initialArchitecture.project.name = 'スキルライフサイクル対象';
+  const architecturePreview = await runScript(
+    ARCHITECTURE_SKILL_SCRIPT,
+    '--preview',
+    JSON.stringify(initialArchitecture),
+    [],
+    workspace
+  );
+  assert.equal(architecturePreview.code, 0, architecturePreview.stderr);
+  assert.equal(JSON.parse(architecturePreview.stdout).changed, true);
+
+  const architectureApply = await runScript(
+    ARCHITECTURE_SKILL_SCRIPT,
+    '--apply',
+    JSON.stringify(initialArchitecture),
+    [],
+    workspace
+  );
+  assert.equal(architectureApply.code, 0, architectureApply.stderr);
+  assert.equal(JSON.parse(architectureApply.stdout).applied, true);
+
+  const firstUpdate = {
+    ...payload(projectId),
+    name: 'スキルライフサイクル対象',
+    progress: 55,
+    status: 'testing',
+    summary: '第1回継続更新',
+    updated_at: '2026-08-12T08:00:00.000Z'
+  };
+  const firstUpdatePreview = await runScript(
+    SKILL_SCRIPT,
+    '--preview',
+    JSON.stringify(firstUpdate),
+    [],
+    workspace
+  );
+  assert.equal(firstUpdatePreview.code, 0, firstUpdatePreview.stderr);
+  assert.ok(JSON.parse(firstUpdatePreview.stdout).changes.some((change) => change.changed));
+
+  const firstUpdateApply = await runScript(
+    SKILL_SCRIPT,
+    '--apply',
+    JSON.stringify(firstUpdate),
+    [],
+    workspace
+  );
+  assert.equal(firstUpdateApply.code, 0, firstUpdateApply.stderr);
+  assert.equal(JSON.parse(firstUpdateApply.stdout).applied, true);
+
+  const secondUpdate = {
+    ...firstUpdate,
+    progress: 85,
+    status: 'release_ready',
+    summary: '第2回継続更新',
+    updated_at: '2026-08-12T08:05:00.000Z'
+  };
+  const secondUpdateApply = await runScript(
+    SKILL_SCRIPT,
+    '--apply',
+    JSON.stringify(secondUpdate),
+    [],
+    workspace
+  );
+  assert.equal(secondUpdateApply.code, 0, secondUpdateApply.stderr);
+  assert.equal(JSON.parse(secondUpdateApply.stdout).applied, true);
+
+  const repeatedUpdate = await runScript(
+    SKILL_SCRIPT,
+    '--apply',
+    JSON.stringify(secondUpdate),
+    [],
+    workspace
+  );
+  assert.equal(repeatedUpdate.code, 0, repeatedUpdate.stderr);
+  assert.equal(JSON.parse(repeatedUpdate.stdout).reason, 'no_changes');
+
+  const metaBefore = await fetch(`${baseUrl}/api/projects/${projectId}/artifacts/architecture/meta`).then((response) => response.json());
+  const updatedArchitecture = structuredClone(initialArchitecture);
+  updatedArchitecture.document.summary = '継続更新後の概念図';
+  updatedArchitecture.document.generated_at = '2026-08-12T08:06:00.000Z';
+  updatedArchitecture.project.analyzed_at = '2026-08-12T08:06:00.000Z';
+  updatedArchitecture.components[0].role = '更新後のAPIを提供する';
+
+  const architectureUpdate = await runScript(
+    ARCHITECTURE_SKILL_SCRIPT,
+    '--apply',
+    JSON.stringify(updatedArchitecture),
+    [],
+    workspace
+  );
+  assert.equal(architectureUpdate.code, 0, architectureUpdate.stderr);
+  assert.equal(JSON.parse(architectureUpdate.stdout).applied, true);
+
+  const repeatedArchitecture = await runScript(
+    ARCHITECTURE_SKILL_SCRIPT,
+    '--apply',
+    JSON.stringify(updatedArchitecture),
+    [],
+    workspace
+  );
+  assert.equal(repeatedArchitecture.code, 0, repeatedArchitecture.stderr);
+  assert.equal(JSON.parse(repeatedArchitecture.stdout).reason, 'no_changes');
+
+  const stored = await fetchProject(projectId);
+  assert.equal(stored.response.status, 200);
+  assert.equal(stored.data.progress, 85);
+  assert.equal(stored.data.status, 'release_ready');
+  assert.equal(stored.data.history.length, 2);
+  assert.deepEqual(stored.data.history.map((entry) => entry.source), ['codex-skill', 'codex-skill']);
+
+  const metaAfter = await fetch(`${baseUrl}/api/projects/${projectId}/artifacts/architecture/meta`).then((response) => response.json());
+  assert.equal(metaAfter.state, 'ready');
+  assert.equal(metaAfter.source, 'codex-skill');
+  assert.notEqual(metaAfter.revision, metaBefore.revision);
 });

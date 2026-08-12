@@ -101,6 +101,12 @@ test('配布プラグインの概念図キーフレーズは確認と反映を�
   assert.match(applyContext, /\$project-architecture-update/);
   assert.match(applyContext, /--apply/);
   assert.match(applyContext, /進捗値の変更.*行わない/);
+  assert.match(applyContext, /自動関連付け/);
+  assert.match(applyContext, /手動link.*依頼しない/);
+
+  const applyAlias = await runHookAt(PLUGIN_HOOK_SCRIPT, '概念図を反映');
+  assert.equal(applyAlias.code, 0, applyAlias.stderr);
+  assert.match(JSON.parse(applyAlias.stdout).hookSpecificOutput.additionalContext, /--apply/);
 
   const mentioned = await runHookAt(PLUGIN_HOOK_SCRIPT, '「概念図に反映」の意味を説明して');
   assert.equal(mentioned.code, 0, mentioned.stderr);
@@ -139,6 +145,8 @@ test('配布プラグインにmanifestと3つのスキルが含まれる', async
   await fs.access(path.join(PLUGIN_ROOT, 'skills', 'project-progress-update', 'SKILL.md'));
   const architectureSkill = await fs.readFile(path.join(PLUGIN_ROOT, 'skills', 'project-architecture-update', 'SKILL.md'), 'utf8');
   assert.match(architectureSkill, /name: project-architecture-update/);
+  assert.match(architectureSkill, /自動関連付け|automatically linking/);
+  assert.doesNotMatch(architectureSkill, /link <project-id>/);
   assert.doesNotMatch(architectureSkill, /\[TODO:/);
   const registrationSkill = await fs.readFile(path.join(PLUGIN_ROOT, 'skills', 'register-project', 'SKILL.md'), 'utf8');
   assert.match(registrationSkill, /name: register-project/);

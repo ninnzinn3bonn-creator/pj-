@@ -5,26 +5,59 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 
 const CONFIG_NAME = '.project-manager.json';
+const DEFAULT_HOST = '127.0.0.1';
+const FIRST_PROBE_PORT = 4170;
+const LAST_PROBE_PORT = 4180;
 const ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
+const PROJECT_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9-]*$/;
+const REQUEST_ID_PATTERN = /^[A-Za-z0-9._:-]+$/;
 
-function parseAction(arguments_) {
-  const apply = arguments_.includes('--apply');
-  const preview = arguments_.includes('--preview');
-  if (apply === preview) throw new Error('--previewまたは--applyのどちらか一方を指定してください。');
-  const requestIndex = arguments_.indexOf('--request-id');
-  const requestId = requestIndex >= 0 ? arguments_[requestIndex + 1] : '';
-  if (requestIndex >= 0 && (!requestId || requestId.startsWith('--'))) {
-    throw new Error('--request-idの値を指定してください。');
+function takeOption(arguments_, index, option) {
+  const value = arguments_[index + 1];
+  if (!value || value.startsWith('--')) {
+    throw new Error(option === '--file' ? '--fileのパスを指定してください。' : `${option}の値を指定してください。`);
   }
-  if (requestId && (requestId.length > 128 || !/^[A-Za-z0-9._:-]+$/.test(requestId))) {
+  return value;
+}
+
+function parseArguments(arguments_) {
+  const options = {
+    action: '',
+    requestId: '',
+    filename: '',
+    managerUrl: '',
+    root: process.cwd()
+  };
+  const destinations = new Map([
+    ['--request-id', 'requestId'],
+    ['--file', 'filename'],
+    ['--url', 'managerUrl'],
+    ['--root', 'root']
+  ]);
+  const seen = new Set();
+
+  for (let index = 0; index < arguments_.length; index += 1) {
+    const argument = arguments_[index];
+    if (argument === '--preview' || argument === '--apply') {
+      if (options.action) throw new Error('--previewと--applyはどちらか一方だけ指定してください。');
+      options.action = argument.slice(2);
+      continue;
+    }
+    const destination = destinations.get(argument);
+    if (!destination) throw new Error(`未対応の引数です: ${argument}`);
+    if (seen.has(argument)) throw new Error(`${argument}は1回だけ指定してください。`);
+    seen.add(argument);
+    options[destination] = takeOption(arguments_, index, argument);
+    index += 1;
+  }
+
+  if (!options.action) throw new Error('--previewまたは--applyのどちらか一方を指定してください。');
+  if (options.requestId && (options.requestId.length > 128 || !REQUEST_ID_PATTERN.test(options.requestId))) {
     throw new Error('--request-idは128文字以内の英数字、ハイフン、ピリオド、アンダースコア、コロンで指定してください。');
   }
-  const fileIndex = arguments_.indexOf('--file');
-  const filename = fileIndex >= 0 ? arguments_[fileIndex + 1] : '';
-  if (fileIndex >= 0 && (!filename || filename.startsWith('--'))) {
-    throw new Error('--fileのパスを指定してください。');
-  }
-  return { action: apply ? 'apply' : 'preview', requestId, filename };
+  options.root = path.resolve(options.root);
+  if (options.filename) options.filename = path.resolve(options.filename);
+  return options;
 }
 
 async function readInput(filename) {
@@ -55,6 +88,16 @@ function extractJson(text) {
   }
 }
 
+async function assertRoot(root) {
+  let stats;
+  try {
+    stats = await fs.stat(root);
+  } catch (error) {
+    throw new Error(`プロジェクトルートを確認できません (${root}): ${error.message}`);
+  }
+  if (!stats.isDirectory()) throw new Error(`--rootはディレクトリを指定してください: ${root}`);
+}
+
 async function findConfig(startDirectory) {
   let directory = path.resolve(startDirectory);
   while (true) {
@@ -71,21 +114,35 @@ async function findConfig(startDirectory) {
   }
 }
 
-function validateConfig(config) {
-  if (!config) throw new Error('.project-manager.jsonが見つかりません。先にプラグイン同梱CLIのlinkコマンドを実行してください。');
-  if (config.data.schema_version !== 1) throw new Error(`${config.filename}のschema_versionは1である必要があります。`);
-  if (!/^[A-Za-z0-9][A-Za-z0-9-]*$/.test(config.data.project_id || '')) {
-    throw new Error(`${config.filename}のproject_idが正しくありません。`);
-  }
+function normalizeManagerUrl(value) {
+  let parsed;
   try {
-    const managerUrl = new URL(config.data.manager_url);
-    if (!['http:', 'https:'].includes(managerUrl.protocol)) throw new Error('protocol');
+    parsed = new URL(value);
   } catch {
-    throw new Error(`${config.filename}のmanager_urlが正しくありません。`);
+    throw new Error(`管理サイトURLの形式が正しくありません: ${value}`);
   }
+  if (!['http:', 'https:'].includes(parsed.protocol)) {
+    throw new Error('管理サイトURLはhttp://またはhttps://で指定してください。');
+  }
+  parsed.hash = '';
+  parsed.search = '';
+  return parsed.toString().replace(/\/+$/, '');
 }
 
-function validateDocument(data, config) {
+function validateConfig(config) {
+  if (!config) return null;
+  if (config.data.schema_version !== 1) throw new Error(`${config.filename}のschema_versionは1である必要があります。`);
+  if (!PROJECT_ID_PATTERN.test(config.data.project_id || '')) {
+    throw new Error(`${config.filename}のproject_idが正しくありません。`);
+  }
+  return {
+    projectId: config.data.project_id,
+    managerUrl: normalizeManagerUrl(config.data.manager_url),
+    filename: config.filename
+  };
+}
+
+function validateDocument(data, expectedProjectId = '') {
   const errors = [];
   if (!data || typeof data !== 'object' || Array.isArray(data)) return ['JSONの最上位はオブジェクトで指定してください。'];
   if (data.schema_version !== 1) errors.push('schema_versionは1である必要があります。');
@@ -93,8 +150,10 @@ function validateDocument(data, config) {
   if (!data.document || !ID_PATTERN.test(data.document.id || '') || !String(data.document.title || '').trim()) {
     errors.push('documentには有効なidとtitleが必要です。');
   }
-  if (data?.project?.project_id !== config.data.project_id) {
-    errors.push(`project.project_idが関連付けと一致しません。期待値: ${config.data.project_id} / JSON: ${data?.project?.project_id || '未指定'}`);
+  if (!PROJECT_ID_PATTERN.test(data?.project?.project_id || '')) {
+    errors.push('project.project_idは英数字で始まる英数字とハイフンだけのIDにしてください。');
+  } else if (expectedProjectId && data.project.project_id !== expectedProjectId) {
+    errors.push(`project.project_idが関連付けと一致しません。期待値: ${expectedProjectId} / JSON: ${data.project.project_id}`);
   }
   for (const key of ['groups', 'components', 'edges', 'flows']) {
     if (!Array.isArray(data[key])) errors.push(`${key}は配列で指定してください。`);
@@ -136,71 +195,230 @@ function validateDocument(data, config) {
 }
 
 async function requestJson(baseUrl, pathname, options = {}) {
+  const requestUrl = `${String(baseUrl).replace(/\/+$/, '')}${pathname}`;
   let response;
   try {
-    response = await fetch(`${String(baseUrl).replace(/\/+$/, '')}${pathname}`, {
-      ...options,
+    response = await fetch(requestUrl, {
+      method: options.method || 'GET',
+      body: options.body,
       signal: AbortSignal.timeout(options.timeout || 7000),
-      headers: options.body ? { 'Content-Type': 'application/json' } : undefined
+      headers: {
+        Accept: 'application/json',
+        ...(options.body ? { 'Content-Type': 'application/json' } : {})
+      }
     });
   } catch (error) {
     throw new Error(`管理サイトへ接続できません (${baseUrl}): ${error.message}`);
   }
   const text = await response.text();
   let data = null;
-  try { data = text ? JSON.parse(text) : null; } catch { throw new Error(`管理サイトから不正な応答を受信しました (HTTP ${response.status})。`); }
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    throw new Error(`管理サイトから不正な応答を受信しました (HTTP ${response.status})。`);
+  }
   if (!response.ok) {
     const error = new Error(data?.error || `HTTP ${response.status}`);
     error.details = data?.details || [];
+    error.status = response.status;
+    error.responseData = data;
     throw error;
   }
   return { data, response };
+}
+
+function isCompatibleManager(health, meta) {
+  return health?.service === 'local-project-manager'
+    && health?.schemaVersion === 1
+    && health?.status === 'ok'
+    && meta?.service === 'local-project-manager'
+    && meta?.schemaVersion === 1;
+}
+
+async function inspectManager(managerUrl, timeout = 1500) {
+  const normalizedUrl = normalizeManagerUrl(managerUrl);
+  const [health, meta] = await Promise.all([
+    requestJson(normalizedUrl, '/api/health', { timeout }),
+    requestJson(normalizedUrl, '/api/meta', { timeout })
+  ]);
+  if (!isCompatibleManager(health.data, meta.data)) {
+    throw new Error(`互換性のあるプロジェクト台帳ではありません: ${normalizedUrl}`);
+  }
+  return normalizedUrl;
+}
+
+async function resolveManagerUrl(explicitUrl) {
+  const selected = explicitUrl || process.env.PROJECT_MANAGER_URL || '';
+  if (selected) return inspectManager(selected);
+
+  const candidates = [];
+  for (let port = FIRST_PROBE_PORT; port <= LAST_PROBE_PORT; port += 1) {
+    candidates.push(`http://${DEFAULT_HOST}:${port}`);
+  }
+  const settled = await Promise.all(candidates.map(async (candidate) => {
+    try {
+      return await inspectManager(candidate, 1200);
+    } catch {
+      return null;
+    }
+  }));
+  const matches = settled.filter(Boolean);
+  if (matches.length === 0) throw new Error('ポート4170から4180に起動中のプロジェクト台帳が見つかりません。');
+  if (matches.length > 1) throw new Error('複数のプロジェクト台帳が見つかったため自動選択できません。--urlで指定してください。');
+  return matches[0];
+}
+
+function normalizedRepositoryUrl(value) {
+  if (!value) return '';
+  try {
+    const parsed = new URL(value);
+    parsed.hash = '';
+    parsed.search = '';
+    parsed.protocol = parsed.protocol.toLowerCase();
+    parsed.hostname = parsed.hostname.toLowerCase();
+    parsed.pathname = parsed.pathname.replace(/\/+$/, '').replace(/\.git$/i, '');
+    return parsed.toString().replace(/\/+$/, '');
+  } catch {
+    return '';
+  }
+}
+
+async function verifyRegisteredProject(managerUrl, payload) {
+  const projectId = payload.project.project_id;
+  let result;
+  try {
+    result = await requestJson(managerUrl, `/api/projects/${encodeURIComponent(projectId)}`);
+  } catch (error) {
+    if (error.status === 404) {
+      throw new Error(`project_id「${projectId}」は台帳に登録されていません。先に「台帳に新規登録」を実行してください。`);
+    }
+    throw error;
+  }
+  const actualId = result.data?.projectId || result.data?.project_id || '';
+  if (actualId !== projectId) throw new Error(`台帳のプロジェクトIDが一致しません。期待値: ${projectId} / 実際: ${actualId || '未指定'}`);
+  const documentRepository = normalizedRepositoryUrl(payload.project.repository_url || '');
+  const registeredRepository = normalizedRepositoryUrl(result.data?.repositoryUrl || result.data?.repository_url || '');
+  if (documentRepository && registeredRepository && documentRepository !== registeredRepository) {
+    throw new Error(`project_id「${projectId}」のリポジトリURLが台帳と一致しません。対象を確認してください。`);
+  }
+  return result.data;
 }
 
 function endpoint(projectId, suffix) {
   return `/api/projects/${encodeURIComponent(projectId)}/artifacts/architecture/${suffix}`;
 }
 
+async function writeMappingAtomic(mappingPath, mapping) {
+  const temporaryPath = path.join(
+    path.dirname(mappingPath),
+    `.${path.basename(mappingPath)}.${process.pid}.${crypto.randomUUID()}.tmp`
+  );
+  let handle;
+  try {
+    handle = await fs.open(temporaryPath, 'wx', 0o600);
+    await handle.writeFile(`${JSON.stringify(mapping, null, 2)}\n`, 'utf8');
+    await handle.sync();
+    await handle.close();
+    handle = null;
+    await fs.link(temporaryPath, mappingPath);
+  } finally {
+    if (handle) await handle.close().catch(() => {});
+    await fs.unlink(temporaryPath).catch(() => {});
+  }
+}
+
+async function verifyMapping(mappingPath, expected) {
+  const actual = JSON.parse(await fs.readFile(mappingPath, 'utf8'));
+  if (actual.schema_version !== expected.schema_version
+    || actual.project_id !== expected.project_id
+    || normalizeManagerUrl(actual.manager_url) !== expected.manager_url) {
+    throw new Error(`${mappingPath}の内容が概念図の対象と一致しません。`);
+  }
+}
+
+async function ensureMapping({ config, mappingPath, mapping }) {
+  if (config) {
+    await verifyMapping(config.filename, mapping);
+    return { written: false, path: config.filename, data: mapping };
+  }
+  try {
+    await writeMappingAtomic(mappingPath, mapping);
+  } catch (error) {
+    if (error.code !== 'EEXIST') throw error;
+  }
+  await verifyMapping(mappingPath, mapping);
+  return { written: true, path: mappingPath, data: mapping };
+}
+
 async function main() {
-  const { action, requestId: requestedId, filename } = parseAction(process.argv.slice(2));
-  const payload = extractJson(await readInput(filename));
-  const config = await findConfig(process.cwd());
-  validateConfig(config);
-  const errors = validateDocument(payload, config);
+  const options = parseArguments(process.argv.slice(2));
+  await assertRoot(options.root);
+  const payload = extractJson(await readInput(options.filename));
+  const config = await findConfig(options.root);
+  const linked = validateConfig(config);
+  const expectedProjectId = linked?.projectId || payload?.project?.project_id || '';
+  const errors = validateDocument(payload, expectedProjectId);
   if (errors.length) {
     const error = new Error('architecture JSONが正しくありません。');
     error.details = errors;
     throw error;
   }
 
-  const projectId = config.data.project_id;
-  const previewResult = await requestJson(config.data.manager_url, endpoint(projectId, 'preview'), {
+  let managerUrl;
+  if (linked) {
+    if (options.managerUrl && normalizeManagerUrl(options.managerUrl) !== linked.managerUrl) {
+      throw new Error(`--urlが既存の関連付けと一致しません。期待値: ${linked.managerUrl}`);
+    }
+    managerUrl = await inspectManager(linked.managerUrl);
+  } else {
+    managerUrl = await resolveManagerUrl(options.managerUrl);
+  }
+
+  const projectId = payload.project.project_id;
+  await verifyRegisteredProject(managerUrl, payload);
+  const mappingPath = linked?.filename || path.join(options.root, CONFIG_NAME);
+  const mapping = { schema_version: 1, project_id: projectId, manager_url: managerUrl };
+  const previewResult = await requestJson(managerUrl, endpoint(projectId, 'preview'), {
     method: 'POST',
     body: JSON.stringify({ data: payload, source: 'codex-skill' })
   });
-  if (previewResult.data?.projectId !== projectId) throw new Error(`プレビュー対象が関連付けと一致しません。期待値: ${projectId}`);
-  if (action === 'preview') {
-    process.stdout.write(`${JSON.stringify(previewResult.data, null, 2)}\n`);
-    return;
-  }
-  if (!previewResult.data.changed) {
-    process.stdout.write(`${JSON.stringify({ applied: false, reason: 'no_changes', preview: previewResult.data }, null, 2)}\n`);
+  if (previewResult.data?.projectId !== projectId) throw new Error(`プレビュー対象がproject_idと一致しません。期待値: ${projectId}`);
+
+  if (options.action === 'preview') {
+    process.stdout.write(`${JSON.stringify({
+      ...previewResult.data,
+      managerUrl,
+      mapping: { written: false, required: !linked, path: mappingPath, data: mapping }
+    }, null, 2)}\n`);
     return;
   }
 
-  const requestId = requestedId || `architecture-${projectId}-${crypto.createHash('sha256').update(JSON.stringify(payload)).digest('hex').slice(0, 32)}`;
-  const commitBody = { data: payload, source: 'codex-skill', requestId };
-  if (previewResult.data.currentRevision) commitBody.expectedRevision = previewResult.data.currentRevision;
-  const commitResult = await requestJson(config.data.manager_url, endpoint(projectId, 'commit'), {
-    method: 'POST',
-    body: JSON.stringify(commitBody)
-  });
-  process.stdout.write(`${JSON.stringify({
-    ...commitResult.data,
-    applied: commitResult.data.applied !== false,
-    replayed: commitResult.data.replayed === true || commitResult.response.headers.get('x-idempotent-replay') === 'true',
-    requestId
-  }, null, 2)}\n`);
+  let result;
+  if (!previewResult.data.changed) {
+    result = { applied: false, reason: 'no_changes', preview: previewResult.data };
+  } else {
+    const requestId = options.requestId || `architecture-${projectId}-${crypto.createHash('sha256').update(JSON.stringify(payload)).digest('hex').slice(0, 32)}`;
+    const commitBody = { data: payload, source: 'codex-skill', requestId };
+    if (previewResult.data.currentRevision) commitBody.expectedRevision = previewResult.data.currentRevision;
+    const commitResult = await requestJson(managerUrl, endpoint(projectId, 'commit'), {
+      method: 'POST',
+      body: JSON.stringify(commitBody)
+    });
+    result = {
+      ...commitResult.data,
+      applied: commitResult.data.applied !== false,
+      replayed: commitResult.data.replayed === true || commitResult.response.headers.get('x-idempotent-replay') === 'true',
+      requestId
+    };
+  }
+
+  let mappingResult;
+  try {
+    mappingResult = await ensureMapping({ config, mappingPath, mapping });
+  } catch (error) {
+    throw new Error(`概念図の処理は完了しましたが、関連付けを自動作成できませんでした (${mappingPath}): ${error.message}`);
+  }
+  process.stdout.write(`${JSON.stringify({ ...result, managerUrl, projectId, mapping: mappingResult }, null, 2)}\n`);
 }
 
 main().catch((error) => {

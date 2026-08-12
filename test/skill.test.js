@@ -323,6 +323,101 @@ test('概念図スキルが検証・プレビュー後にcodex-skillとして反
   assert.equal(JSON.parse(repeated.stdout).reason, 'no_changes');
 });
 
+test('未関連付けの登録済みプロジェクトへ概念図を一発登録し以後は同じ経路で更新する', async () => {
+  const projectId = 'architecture-auto-link';
+  const workspace = await makeRegistrationWorkspace('architecture-auto-link');
+  const created = await fetch(`${baseUrl}/api/projects`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      projectId,
+      name: '概念図自動関連付け対象',
+      appUrl: '',
+      adminUrl: '',
+      repositoryUrl: 'https://github.com/example/architecture-auto-link',
+      developmentUrl: '',
+      status: 'development',
+      progress: 30,
+      owner: '',
+      tags: ['Codex'],
+      summary: '台帳には登録済みだが関連付けは未作成',
+      currentTasks: ['概念図を登録する'],
+      nextTasks: [],
+      blockers: []
+    })
+  });
+  assert.equal(created.status, 201, await created.text());
+
+  const initial = architecturePayload(projectId);
+  initial.project.name = '概念図自動関連付け対象';
+  initial.project.repository_url = 'https://github.com/example/architecture-auto-link.git';
+  const arguments_ = ['--url', baseUrl, '--root', workspace];
+
+  const preview = await runScript(
+    ARCHITECTURE_SKILL_SCRIPT,
+    '--preview',
+    JSON.stringify(initial),
+    arguments_,
+    workspace
+  );
+  assert.equal(preview.code, 0, preview.stderr);
+  const previewResult = JSON.parse(preview.stdout);
+  assert.equal(previewResult.changed, true);
+  assert.equal(previewResult.mapping.required, true);
+  assert.equal(previewResult.mapping.written, false);
+  await assert.rejects(fs.access(path.join(workspace, '.project-manager.json')), { code: 'ENOENT' });
+
+  const applied = await runScript(
+    ARCHITECTURE_SKILL_SCRIPT,
+    '--apply',
+    JSON.stringify(initial),
+    arguments_,
+    workspace
+  );
+  assert.equal(applied.code, 0, applied.stderr);
+  const appliedResult = JSON.parse(applied.stdout);
+  assert.equal(appliedResult.applied, true);
+  assert.equal(appliedResult.projectId, projectId);
+  assert.equal(appliedResult.mapping.written, true);
+  assert.deepEqual(JSON.parse(await fs.readFile(path.join(workspace, '.project-manager.json'), 'utf8')), {
+    schema_version: 1,
+    project_id: projectId,
+    manager_url: baseUrl
+  });
+
+  const updated = structuredClone(initial);
+  updated.document.summary = '自動関連付け後の継続更新';
+  updated.document.generated_at = '2026-08-12T12:00:00.000Z';
+  updated.components[0].role = '更新後のAPIを提供する';
+  const updatedResult = await runScript(
+    ARCHITECTURE_SKILL_SCRIPT,
+    '--apply',
+    JSON.stringify(updated),
+    [],
+    workspace
+  );
+  assert.equal(updatedResult.code, 0, updatedResult.stderr);
+  assert.equal(JSON.parse(updatedResult.stdout).applied, true);
+  assert.equal(JSON.parse(updatedResult.stdout).mapping.written, false);
+
+  const exported = await fetch(`${baseUrl}/api/projects/${projectId}/artifacts/architecture`).then((response) => response.json());
+  assert.equal(exported.architecture.document.summary, '自動関連付け後の継続更新');
+});
+
+test('未関連付けの概念図は台帳に存在しないproject_idを自動作成しない', async () => {
+  const workspace = await makeRegistrationWorkspace('architecture-missing-project');
+  const result = await runScript(
+    ARCHITECTURE_SKILL_SCRIPT,
+    '--apply',
+    JSON.stringify(architecturePayload('architecture-not-registered')),
+    ['--url', baseUrl, '--root', workspace],
+    workspace
+  );
+  assert.equal(result.code, 1);
+  assert.match(result.stderr, /台帳に登録されていません/);
+  await assert.rejects(fs.access(path.join(workspace, '.project-manager.json')), { code: 'ENOENT' });
+});
+
 test('概念図スキルが関連付け不一致と参照切れを保存前に拒否する', async () => {
   const mismatch = await runScript(
     ARCHITECTURE_SKILL_SCRIPT,

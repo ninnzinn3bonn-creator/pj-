@@ -27,11 +27,12 @@ function additionalContext(action) {
 function architectureContext(action) {
   if (action === 'apply') {
     return [
-      'ユーザーは入力全体を「概念図に反映」とし、このターンでプロジェクト台帳への概念図保存を明示的に承認した。',
+      'ユーザーは入力全体を「概念図に反映」または「概念図を反映」とし、このターンでプロジェクト台帳への概念図保存を明示的に承認した。',
       'Project Progress Managerプラグインの$project-architecture-updateスキルを使用すること。',
-      '現在位置に対応する.project-manager.jsonを必須とし、実際のREADME・ソース・設定・テスト・主要フローを調査すること。',
-      'architecture-graph JSONを生成し、スキル付属スクリプトの--applyでプレビュー検証後に1回だけ反映すること。',
-      '対象を推測せず、関連付けがない場合は保存しないこと。進捗値の変更や削除操作は行わないこと。'
+      '実際のREADME・ソース・設定・テスト・主要フローを調査すること。',
+      'architecture-graph JSONを生成し、プロジェクトルートを--rootで渡してスキル付属スクリプトの--applyを1回だけ実行すること。ランナーが内部でプレビュー検証する。',
+      '.project-manager.jsonがない場合も、台帳上の登録済みプロジェクトを安全に一意特定できれば自動関連付けして同じターンで保存すること。手動linkをユーザーに依頼しないこと。',
+      '対象を推測しないこと。進捗値の変更や削除操作は行わないこと。'
     ].join(' ');
   }
   return [
@@ -72,7 +73,7 @@ async function main() {
   const prompt = payload.prompt.trim();
   const apply = /^進捗に反映[。！!]?$/u.test(prompt);
   const preview = /^進捗を確認[。！!]?$/u.test(prompt);
-  const architectureApply = /^概念図に反映[。！!]?$/u.test(prompt);
+  const architectureApply = /^概念図[にを]反映[。！!]?$/u.test(prompt);
   const architecturePreview = /^概念図を確認[。！!]?$/u.test(prompt);
   const registrationApply = /^台帳に新規登録[。！!]?$/u.test(prompt);
   const registrationPreview = /^新規登録を確認[。！!]?$/u.test(prompt);

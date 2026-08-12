@@ -1,6 +1,6 @@
 ---
 name: project-architecture-update
-description: Analyze a development project from actual repository evidence and preview or apply its architecture-graph JSON to the linked local project register. Use when the user says 「概念図を確認」「概念図に反映」, asks Codex to create or update a project architecture diagram, or needs a validated architecture JSON submitted through the bundled project-manager CLI.
+description: Analyze a development project from actual repository evidence and preview or apply its architecture-graph JSON to the local project register, automatically linking an unlinked project when safely possible. Use when the user says 「概念図を確認」「概念図に反映」「概念図を反映」, asks Codex to create or update a project architecture diagram, or needs a validated architecture JSON submitted through the bundled project-manager CLI.
 ---
 
 # Project Architecture Update
@@ -9,22 +9,23 @@ Inspect the current project, create an evidence-backed `architecture-graph` docu
 
 ## Choose the action
 
-- Treat an exact `概念図に反映` phrase as authorization to apply the validated document.
+- Treat an exact `概念図に反映` or `概念図を反映` phrase as authorization to apply the validated document.
 - Treat `概念図を確認` as preview-only.
 - Preview when neither exact phrase is present. Ask before applying.
 - Never delete an architecture document or change project progress through this skill.
 
 ## Resolve the target
 
-Find `.project-manager.json` from the current directory upward. Require `schema_version: 1`, `project_id`, and `manager_url`.
+Find `.project-manager.json` from the project root upward. When it exists, require `schema_version: 1`, `project_id`, and `manager_url`, and require `project.project_id` in the architecture JSON to equal the linked ID.
 
-If the file is missing, stop without guessing. Tell the user to run:
+When it is missing, continue without asking the user to run `link`:
 
-```powershell
-node "$env:USERPROFILE\plugins\project-progress-manager\scripts\project-manager.cjs" link <project-id> --url http://127.0.0.1:4170
-```
+1. Resolve the intended project ID from explicit user context or stable repository evidence. Prefer an exact repository URL match against the register, then an exact registered project ID derived from the repository/package/directory name. Never choose between multiple plausible records.
+2. Resolve the register from an explicit URL, `PROJECT_MANAGER_URL`, or automatic probing of `http://127.0.0.1:4170` through `http://127.0.0.1:4180`. Automatic probing must find exactly one compatible register.
+3. Put the resolved registered ID in `project.project_id`. The runner verifies that the record exists and checks repository URLs when both sides provide one.
+4. Pass the actual project root with `--root`. Preview creates no files. Apply creates `<project-root>/.project-manager.json` atomically after the architecture operation succeeds.
 
-Require `project.project_id` in the architecture JSON to equal the linked ID.
+If no registered project can be identified uniquely, stop and report that ambiguity. Do not ask the user to perform a routine link command.
 
 ## Analyze repository evidence
 
@@ -89,8 +90,8 @@ Use stable ASCII IDs. Keep all IDs unique, ensure every reference resolves, and 
 Save the JSON as UTF-8 and pass its path to the script. Prefer `--file` on Windows, especially Windows PowerShell 5.1, because native-command pipelines do not use UTF-8 by default.
 
 ```powershell
-node "<skill-dir>\scripts\update-architecture.mjs" --preview --file "<architecture.json>"
-node "<skill-dir>\scripts\update-architecture.mjs" --apply --file "<architecture.json>"
+node "<skill-dir>\scripts\update-architecture.mjs" --preview --file "<architecture.json>" --root "<project-root>"
+node "<skill-dir>\scripts\update-architecture.mjs" --apply --file "<architecture.json>" --root "<project-root>"
 ```
 
 The script still accepts JSON from standard input. Before piping JSON to Node in Windows PowerShell 5.1, set `$OutputEncoding` to UTF-8 explicitly:
@@ -100,6 +101,6 @@ $OutputEncoding = [System.Text.UTF8Encoding]::new($false)
 Get-Content -Raw -Encoding UTF8 "<architecture.json>" | node "<skill-dir>\scripts\update-architecture.mjs" --preview
 ```
 
-The script requires the project mapping, verifies the target ID, calls the architecture preview endpoint before any write, uses optimistic revision matching, tags writes as `codex-skill`, and supplies a deterministic request ID.
+The script verifies the registered target ID, calls the architecture preview endpoint before any write, uses optimistic revision matching, tags writes as `codex-skill`, and supplies a deterministic request ID. With an existing mapping it preserves strict ID matching. Without one, it verifies the target through the register and creates the mapping automatically only on apply.
 
 Use `--apply` only for an authorized apply phrase. Report whether the document was previewed, applied, replayed, skipped as unchanged, or rejected.

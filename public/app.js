@@ -379,6 +379,7 @@ function renderDetail(project) {
         </div>
       </div>
       <div class="detail-actions">
+        <button type="button" data-detail-action="share">チームへ共有・更新</button>
         <button type="button" data-detail-action="ai-update">AI出力で更新</button>
         <button type="button" data-detail-action="edit" class="primary">手動編集</button>
         <details class="action-menu">
@@ -1093,6 +1094,69 @@ async function commitBackup() {
   }
 }
 
+function teamConfig() {
+  try { return JSON.parse(localStorage.getItem('pm-team') || '{}'); } catch { return {}; }
+}
+async function teamApi(config, path, options = {}) {
+  const url = new URL(config.url);
+  if (url.protocol !== 'https:' || url.username || url.password) throw new Error('チームURLはHTTPSで指定してください。');
+  const response = await fetch(`${url.origin}${path}`, { ...options, credentials: 'omit', headers: { Authorization: `Bearer ${config.token}`, 'Content-Type': 'application/json' } });
+  const data = await response.json();
+  if (!response.ok) throw Object.assign(new Error(data.error || 'チームとの通信に失敗しました。'), data, { status: response.status });
+  return data;
+}
+function openTeamSettings() {
+  const config = teamConfig();
+  document.querySelector('#team-url').value = config.url || '';
+  document.querySelector('#team-token').value = config.token || '';
+  document.querySelector('#team-error').hidden = true;
+  document.querySelector('#team-dialog').showModal();
+}
+async function shareTeamProject(project) {
+  const config = teamConfig();
+  if (!config.url || !config.token) return openTeamSettings();
+  let payload;
+  try {
+    const fields = ['projectId','name','appUrl','adminUrl','repositoryUrl','developmentUrl','status','progress','owner','tags','summary','currentTasks','nextTasks','blockers'];
+    payload = Object.fromEntries(fields.map((key) => [key, project[key]]));
+    if (!await confirmAction(`「${project.name}」の進捗・URL・タスクをチーム全員に共有します。ローカルの履歴やプロジェクトフォルダ設定は送信しません。`, '共有する')) return;
+    const meta = await api(`${architectureBasePath(project.projectId)}/meta`);
+    if (normalizeArchitectureMeta(meta).hasValidDocument && await confirmAction('保存済みの概念図も共有しますか？図に含まれるソースパスや説明もチームに公開されます。', '概念図も共有')) {
+      const graph = await api(architectureBasePath(project.projectId));
+      payload.architecture = graph.architecture || graph.data || graph;
+    }
+    const key = `pm-team-revision:${new URL(config.url).origin}:${project.projectId}`;
+    const result = await teamApi(config, '/api/projects/share', { method: 'POST', body: JSON.stringify({ project: payload, expectedRevision: localStorage.getItem(key) || '' }) });
+    localStorage.setItem(key, result.project.revision);
+    showMessage('チームへ共有しました。チームサイトで確認できます。');
+  } catch (error) {
+    if (error.latest) {
+      const differences = Object.keys(payload).filter(key => JSON.stringify(payload[key]) !== JSON.stringify(error.latest[key])).map(key => `${key}\n共有先: ${JSON.stringify(error.latest[key])}\nこのPC: ${JSON.stringify(payload[key])}`).join('\n\n');
+      if (!await confirmAction(`共有先に @${error.latest.updatedBy || 'メンバー'} の更新があります。以下の差分を確認してください。\n\n${differences}\n\nこのPCの内容で共有先を更新しますか？キャンセルすると共有先を維持します。`, '差分を確認して更新')) return;
+      try {
+        const result = await teamApi(config, '/api/projects/share', { method: 'POST', body: JSON.stringify({ project: payload, expectedRevision: error.latest.revision }) });
+        localStorage.setItem(`pm-team-revision:${new URL(config.url).origin}:${project.projectId}`, result.project.revision);
+        showMessage('確認した内容でチームを更新しました。');
+      } catch (retryError) { showMessage(retryError.message, true); }
+    } else showMessage(error.message, true);
+  }
+}
+document.querySelector('#team-settings-button').addEventListener('click', openTeamSettings);
+document.querySelector('#team-save').addEventListener('click', async () => {
+  const config = { url: document.querySelector('#team-url').value.trim(), token: document.querySelector('#team-token').value.trim() };
+  try {
+    await teamApi(config, '/api/projects');
+    config.url = new URL(config.url).origin;
+    localStorage.setItem('pm-team', JSON.stringify(config));
+    document.querySelector('#team-dialog').close();
+    showMessage('チーム接続を保存しました。');
+  } catch (error) { showInlineError(document.querySelector('#team-error'), error); }
+});
+document.querySelector('#team-disconnect').addEventListener('click', () => {
+  localStorage.removeItem('pm-team');
+  document.querySelector('#team-token').value = '';
+  showMessage('このブラウザのチーム接続を解除しました。');
+});
 document.querySelector('#new-project-button').addEventListener('click', () => openManual());
 document.querySelector('#ai-import-button').addEventListener('click', () => openAiImport());
 document.querySelector('#cli-button').addEventListener('click', openCliDialog);
@@ -1180,6 +1244,7 @@ elements.detailContent.addEventListener('click', (event) => {
   const project = state.projects.find((item) => item.projectId === currentDetailId());
   if (!project) return;
   if (action === 'edit') openManual(project);
+  if (action === 'share') void shareTeamProject(project);
   if (action === 'ai-update') openAiImport('update', project.projectId);
   if (action === 'copy-update') copyText(updatePrompt(project));
   if (action === 'architecture') location.hash = `#/project/${encodeURIComponent(project.projectId)}/architecture`;

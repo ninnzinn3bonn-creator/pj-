@@ -205,6 +205,7 @@ th { background: #e8eaed; color: #42464b; font-size: 12px; font-weight: 650; whi
 .history-table { min-width: 680px; border: 1px solid var(--border); }
 .history-table td { font-size: 13px; }
 .muted { color: var(--muted); font-size: 12px; }
+#confirm-message { white-space: pre-wrap; overflow-wrap: anywhere; }
 
 dialog {
   width: min(760px, calc(100vw - 32px));

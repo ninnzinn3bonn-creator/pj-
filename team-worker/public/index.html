@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="GitHubを共有データストアとして使うチーム向けプロジェクト台帳">
+  <title>チーム・プロジェクト台帳</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/architecture-viewer.css">
+</head>
+<body>
+  <header class="site-header">
+    <div><p class="eyebrow">TEAM PROJECT REGISTER</p><h1>チーム・プロジェクト台帳</h1><p id="team-note">GitHub上の非公開データをチームで共有します。</p></div>
+    <div class="header-actions"><span id="user-label" hidden></span><button id="connection-button" hidden>ローカル台帳と接続</button><a id="logout-link" href="/auth/logout" hidden>ログアウト</a></div>
+  </header>
+  <div id="message" class="message" role="status" aria-live="polite" hidden></div>
+  <main>
+    <section id="login-view" class="login-card" hidden>
+      <p class="eyebrow">MEMBERS ONLY</p><h2>GitHubでチームに参加</h2>
+      <p>共有データ用の非公開リポジトリへアクセスできるGitHubアカウントだけが利用できます。</p>
+      <a class="primary-link" href="/auth/login">GitHubでログイン</a>
+    </section>
+    <section id="app-view" hidden>
+      <div class="section-heading"><div><h2>共有プロジェクト</h2><p id="project-count">読み込み中…</p></div><button id="refresh-button">再読み込み</button></div>
+      <div id="project-grid" class="project-grid"></div>
+      <section id="graph-section" hidden><button id="graph-close">概念図を閉じる</button><div id="graph-root"></div></section>
+      <p id="empty-state" class="empty-state" hidden>共有プロジェクトはまだありません。ローカル台帳の詳細画面から共有できます。</p>
+    </section>
+  </main>
+
+  <dialog id="edit-dialog">
+    <form id="edit-form">
+      <div class="dialog-heading"><h2 id="edit-title">共有プロジェクトを編集</h2><button type="button" class="icon-button" data-close>×</button></div>
+      <p id="edit-meta" class="form-note"></p>
+      <div class="form-grid">
+        <label class="wide"><span>プロジェクト名</span><input name="name" required maxlength="120"></label>
+        <label><span>状態</span><select name="status"></select></label>
+        <label><span>進捗（0〜100）</span><input name="progress" type="number" min="0" max="100" step="1" required></label>
+        <label class="wide"><span>担当者</span><input name="owner" maxlength="80"></label>
+        <label class="wide"><span>概要</span><textarea name="summary" rows="4"></textarea></label>
+        <label class="wide"><span>現在のタスク（1行に1件）</span><textarea name="currentTasks" rows="3"></textarea></label>
+        <label class="wide"><span>次のタスク（1行に1件）</span><textarea name="nextTasks" rows="3"></textarea></label>
+        <label class="wide"><span>ブロッカー（1行に1件）</span><textarea name="blockers" rows="3"></textarea></label>
+      </div>
+      <div id="edit-error" class="error-box" role="alert" hidden></div>
+      <div class="dialog-actions"><button type="button" data-close>キャンセル</button><button class="primary" type="submit">保存</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="connection-dialog">
+    <div class="dialog-heading"><h2>ローカル台帳と接続</h2><button type="button" class="icon-button" data-close>×</button></div>
+    <p class="form-note">このPCのローカル台帳で「チーム連携設定」を開き、次のURLと接続トークンを貼り付けます。期限切れの際は再ログインしてください。</p>
+    <label><span>チーム台帳URL</span><input id="team-url" readonly></label>
+    <label><span>接続トークン</span><textarea id="connection-token" rows="6" readonly></textarea></label>
+    <div class="dialog-actions"><button id="copy-connection" class="primary">URLとトークンをコピー</button></div>
+  </dialog>
+  <script src="/architecture-viewer.js" defer></script>
+  <script src="/app.js" defer></script>
+</body>
+</html>

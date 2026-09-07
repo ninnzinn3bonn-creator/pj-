@@ -1,0 +1,22 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "project-manager-team",
+  "main": "./src/index.mjs",
+  "compatibility_date": "2026-09-07",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*", "/auth/*"]
+  },
+  "vars": {
+    "GITHUB_REPOSITORY": "OWNER/PRIVATE-DATA-REPOSITORY",
+    "GITHUB_BRANCH": "main",
+    "TEAM_SLUG": "my-team",
+    "ALLOWED_LOCAL_ORIGINS": "http://127.0.0.1:4170,http://localhost:4170"
+  },
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  }
+}

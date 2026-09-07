@@ -124,6 +124,7 @@ export function createApp({ fetchImpl = fetch, store = createGitHubStore(fetchIm
         throw Object.assign(new Error('許可されていないOriginです。'), { status: 403 });
       }
       if (url.pathname === '/auth/login') {
+        if (!env.GITHUB_CLIENT_ID || !env.GITHUB_CLIENT_SECRET || !env.SESSION_SECRET) return json({ error: 'チーム管理者がGitHubログインを設定中です。設定完了後に再度アクセスしてください。' }, 503);
         const state = crypto.randomUUID();
         const stateToken = await seal({ state, expiresAt: Date.now() + 10 * 60 * 1000 }, env.SESSION_SECRET);
         const redirectUri = `${url.origin}/auth/callback`;

@@ -8,7 +8,7 @@ import { mkdtemp, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-const env = { SESSION_SECRET: 'test-secret-'.repeat(6), GITHUB_CLIENT_ID: 'test', TEAM_SLUG: 'test', GITHUB_REPOSITORY: 'owner/private', ALLOWED_LOCAL_ORIGINS: 'http://localhost:4170' };
+const env = { SESSION_SECRET: 'test-secret-'.repeat(6), GITHUB_CLIENT_ID: 'test', GITHUB_CLIENT_SECRET: 'test-only', TEAM_SLUG: 'test', GITHUB_REPOSITORY: 'owner/private', ALLOWED_LOCAL_ORIGINS: 'http://localhost:4170' };
 const project = { projectId: 'demo', name: 'Demo', status: 'development', progress: 20 };
 async function fixture() {
   let data = { schemaVersion: 1, projects: [] };

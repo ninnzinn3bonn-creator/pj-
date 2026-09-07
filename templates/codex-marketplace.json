@@ -1,0 +1,20 @@
+{
+  "name": "project-manager-local",
+  "interface": {
+    "displayName": "Project Manager Local"
+  },
+  "plugins": [
+    {
+      "name": "project-progress-manager",
+      "source": {
+        "source": "local",
+        "path": "./plugins/project-progress-manager"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

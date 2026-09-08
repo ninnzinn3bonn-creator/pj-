@@ -5,7 +5,10 @@ import { fileURLToPath } from 'node:url';
 
 const teamUrl = new URL(process.argv[2] || '');
 if (teamUrl.protocol !== 'https:') throw new Error('公開済みのHTTPS URLを指定してください。');
-const state = randomBytes(24).toString('hex');
+// Resume an interrupted callback without creating a duplicate GitHub App.
+const resumeState = process.argv[3];
+if (resumeState && !/^[a-f0-9]{48}$/.test(resumeState)) throw new Error('Invalid resume state');
+const state = resumeState || randomBytes(24).toString('hex');
 const port = 8792;
 let completed = false;
 let busy = false;

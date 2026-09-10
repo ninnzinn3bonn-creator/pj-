@@ -493,7 +493,7 @@ test('新規登録スキルのapplyはcodex-skill由来で登録し正しい関�
   assert.equal(output.project.createdSource, 'codex-skill');
   assert.equal(output.project.lastUpdateSource, 'codex-skill');
   assert.equal(output.mapping.written, true);
-  assert.equal(path.resolve(output.mapping.path), path.join(workspace, '.project-manager.json'));
+  assert.equal(await fs.realpath(output.mapping.path), await fs.realpath(path.join(workspace, '.project-manager.json')));
 
   const stored = await fetchProject('registration-apply');
   assert.equal(stored.response.status, 200);

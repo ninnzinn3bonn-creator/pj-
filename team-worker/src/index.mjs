@@ -1,10 +1,10 @@
 import { seal, unseal, revisionFor } from './crypto.mjs';
 import { createGitHubStore } from './github-store.mjs';
 import { createD1Store } from './d1-store.mjs';
+import { createRemoteJWKSet, jwtVerify } from 'jose';
 import architectureSchema from '../../lib/architecture-schema.js';
 
 const SESSION_COOKIE = 'pm_team_session';
-const OAUTH_COOKIE = 'pm_oauth_state';
 const SESSION_DURATION = 7 * 24 * 60 * 60 * 1000;
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
 
@@ -73,7 +73,7 @@ async function sessionFromRequest(request, env) {
   const authorization = request.headers.get('Authorization') || '';
   const bearer = authorization.startsWith('Bearer ') ? authorization.slice(7).trim() : '';
   const encoded = bearer || cookieValue(request, SESSION_COOKIE);
-  if (!encoded) throw Object.assign(new Error('GitHubでログインしてください。'), { status: 401 });
+  if (!encoded) throw Object.assign(new Error('メールでログインしてください。'), { status: 401 });
   try { return await unseal(encoded, env.SESSION_SECRET); } catch { throw Object.assign(new Error('セッションが無効です。再度ログインしてください。'), { status: 401 }); }
 }
 
@@ -81,7 +81,7 @@ async function updateProjectStore(store, env, credential, actor, body, projectId
   const incoming = validateProject(body.project || body);
   if (projectId && incoming.projectId !== projectId) throw Object.assign(new Error('projectIdは変更できません。'), { status: 400 });
   if (store.updateProject) return store.updateProject(env, actor, incoming, body.expectedRevision);
-  const actorLogin = actor.login || actor;
+  const actorLogin = actor.email || actor.login || actor;
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const loaded = await store.load(env, credential);
     const index = loaded.data.projects.findIndex((item) => item.projectId === incoming.projectId);
@@ -114,7 +114,22 @@ async function updateProjectStore(store, env, credential, actor, body, projectId
   throw Object.assign(new Error('共有データを更新できません。'), { status: 409 });
 }
 
-export function createApp({ fetchImpl = fetch, store = null } = {}) {
+async function accessUser(request, env) {
+  const assertion = request.headers.get('Cf-Access-Jwt-Assertion');
+  const teamDomain = String(env.ACCESS_TEAM_DOMAIN || '').replace(/^https?:\/\//, '').replace(/\/$/, '');
+  if (!assertion || !teamDomain || !env.ACCESS_AUD) throw Object.assign(new Error('Cloudflare Accessのメール認証が必要です。'), { status: 401 });
+  try {
+    const keys = createRemoteJWKSet(new URL(`https://${teamDomain}/cdn-cgi/access/certs`));
+    const { payload } = await jwtVerify(assertion, keys, { audience: env.ACCESS_AUD, issuer: `https://${teamDomain}` });
+    const email = String(payload.email || '').trim().toLowerCase();
+    if (!email) throw new Error('email claim missing');
+    return { email, name: String(payload.name || email) };
+  } catch {
+    throw Object.assign(new Error('Cloudflare Accessの認証を確認できません。'), { status: 401 });
+  }
+}
+
+export function createApp({ fetchImpl = fetch, store = null, verifyAccess = accessUser } = {}) {
   return async function handle(request, env) {
     const url = new URL(request.url);
     const cors = corsHeaders(request, env);
@@ -128,36 +143,14 @@ export function createApp({ fetchImpl = fetch, store = null } = {}) {
         throw Object.assign(new Error('許可されていないOriginです。'), { status: 403 });
       }
       if (url.pathname === '/auth/login') {
-        if (!env.GITHUB_CLIENT_ID || !env.GITHUB_CLIENT_SECRET || !env.SESSION_SECRET) return json({ error: 'チーム管理者がGitHubログインを設定中です。設定完了後に再度アクセスしてください。' }, 503);
-        const state = crypto.randomUUID();
-        const stateToken = await seal({ state, expiresAt: Date.now() + 10 * 60 * 1000 }, env.SESSION_SECRET);
-        const redirectUri = `${url.origin}/auth/callback`;
-        const authorize = new URL('https://github.com/login/oauth/authorize');
-        authorize.searchParams.set('client_id', env.GITHUB_CLIENT_ID);
-        authorize.searchParams.set('redirect_uri', redirectUri);
-        authorize.searchParams.set('state', state);
-        authorize.searchParams.set('allow_signup', 'false');
-        return new Response(null, {
-          status: 302,
-          headers: { Location: authorize.toString(), 'Set-Cookie': cookie(OAUTH_COOKIE, stateToken, 600) }
-        });
+        return new Response(null, { status: 302, headers: { Location: '/auth/access' } });
       }
-      if (url.pathname === '/auth/callback') {
-        const stateToken = cookieValue(request, OAUTH_COOKIE);
-        let state;
-        try { state = await unseal(stateToken, env.SESSION_SECRET); } catch { throw Object.assign(new Error('ログインを最初からやり直してください。'), { status: 400 }); }
-        if (state.state !== url.searchParams.get('state')) throw Object.assign(new Error('ログイン状態を確認できません。'), { status: 400 });
-        const tokenResponse = await fetchImpl('https://github.com/login/oauth/access_token', {
-          method: 'POST', headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
-          body: JSON.stringify({ client_id: env.GITHUB_CLIENT_ID, client_secret: env.GITHUB_CLIENT_SECRET, code: url.searchParams.get('code'), redirect_uri: `${url.origin}/auth/callback` })
-        });
-        const tokenData = await tokenResponse.json();
-        if (!tokenResponse.ok || !tokenData.access_token) throw Object.assign(new Error('GitHubログインを完了できません。'), { status: 401 });
-        const user = await activeStore.currentUser(tokenData.access_token);
+      if (url.pathname === '/auth/access') {
+        if (!env.SESSION_SECRET) return json({ error: 'チーム管理者がメール認証を設定中です。' }, 503);
+        const user = await verifyAccess(request, env);
         if (activeStore.ensureAccess) await activeStore.ensureAccess(env, user);
-        else await activeStore.load(env, tokenData.access_token);
-        const duration = Math.min(SESSION_DURATION, Number(tokenData.expires_in || SESSION_DURATION / 1000) * 1000);
-        const session = await seal({ accessToken: tokenData.access_token, user, expiresAt: Date.now() + duration }, env.SESSION_SECRET);
+        const duration = SESSION_DURATION;
+        const session = await seal({ user, expiresAt: Date.now() + duration }, env.SESSION_SECRET);
         return new Response(null, { status: 302, headers: { Location: '/', 'Set-Cookie': cookie(SESSION_COOKIE, session, duration / 1000) } });
       }
       if (url.pathname === '/auth/logout') return new Response(null, { status: 302, headers: { Location: '/', 'Set-Cookie': cookie(SESSION_COOKIE, '', 0) } });
@@ -186,8 +179,7 @@ export function createApp({ fetchImpl = fetch, store = null } = {}) {
         if (url.pathname === '/api/members' && request.method === 'POST' && activeStore.addMember) {
           await activeStore.ensureAccess(env, session.user, 'admin');
           const input = await bodyJson(request);
-          const member = await activeStore.lookupUser(session.accessToken, input.login);
-          await activeStore.addMember(env, member, input.role);
+          const member = await activeStore.addMember(env, input.email, input.role);
           return json({ member }, 201, cors);
         }
         const memberMatch = url.pathname.match(/^\/api\/members\/(\d+)$/);

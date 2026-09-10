@@ -14,9 +14,9 @@
   </header>
   <main>
     <section id="login-view" class="login-card">
-      <p class="eyebrow">MEMBERS ONLY</p><h2>GitHubでチームに参加</h2>
+      <p class="eyebrow">MEMBERS ONLY</p><h2>メールでチームに参加</h2>
       <p>ログイン後もプロジェクト一覧はこの公開ページに表示しません。認証済みメンバーだけがローカル台帳から共有データを同期できます。</p>
-      <a class="primary-link" href="/auth/login">GitHubでログイン</a>
+      <a class="primary-link" href="/auth/login">メールでログイン</a>
     </section>
     <section id="app-view" hidden>
       <div class="section-heading"><div><p class="eyebrow">CONNECTED</p><h2>ローカル台帳をチームへ接続</h2></div></div>
@@ -26,8 +26,8 @@
       </div>
       <section id="members-section" class="portal-card" hidden>
         <h2>チームメンバー</h2>
-        <p>GitHubユーザー名を指定して、このチームへのアクセスを許可します。</p>
-        <form id="member-form"><label><span>GitHubユーザー名</span><input id="member-login" required autocomplete="off"></label><button class="primary">メンバーを追加</button></form>
+        <p>メールアドレスを指定して、このチームへのアクセスを許可します。</p>
+        <form id="member-form"><label><span>メールアドレス</span><input id="member-email" type="email" required autocomplete="email"></label><button class="primary">メンバーを追加</button></form>
         <ul id="member-list"></ul>
       </section>
     </section>

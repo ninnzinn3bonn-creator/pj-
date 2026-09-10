@@ -20,11 +20,11 @@
     }
   ],
   "vars": {
-    "GITHUB_REPOSITORY": "ninnzinn3bonn-creator/project-manager-team-data",
-    "GITHUB_BRANCH": "main",
     "TEAM_SLUG": "my-team",
     "TEAM_NAME": "開発チーム",
-    "TEAM_ADMIN_GITHUB_ID": "255440642",
+    "TEAM_ADMIN_EMAIL": "ninnzinn.3bonn@gmail.com",
+    "ACCESS_TEAM_DOMAIN": "",
+    "ACCESS_AUD": "",
     "ALLOWED_LOCAL_ORIGINS": "http://127.0.0.1:4170,http://localhost:4170"
   },
   "observability": {

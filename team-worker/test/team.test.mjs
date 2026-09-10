@@ -50,13 +50,15 @@ test('unauthenticated and invalid-origin writes are denied', async () => {
   assert.equal((await f.call({ project: { ...project, status: 'in_progress' } })).status, 400);
   assert.equal((await f.store.load()).data.projects.length, 0);
 });
-test('OAuth login sets state cookie and invalid callback is rejected', async () => {
+test('Cloudflare Access login exchanges a verified email for an app session', async () => {
   const f = await fixture();
   const response = await f.app(new Request('https://team.test/auth/login'), env);
   assert.equal(response.status, 302);
-  assert.match(response.headers.get('Set-Cookie'), /HttpOnly; Secure; SameSite=Lax/);
-  assert.ok(new URL(response.headers.get('Location')).searchParams.get('state'));
-  assert.equal((await f.app(new Request('https://team.test/auth/callback?code=x&state=bad'), env)).status, 400);
+  assert.equal(response.headers.get('Location'), '/auth/access');
+  const app = createApp({ store: f.store, verifyAccess: async () => ({ email: 'alice@example.com' }) });
+  const authenticated = await app(new Request('https://team.test/auth/access'), env);
+  assert.equal(authenticated.status, 302);
+  assert.match(authenticated.headers.get('Set-Cookie'), /HttpOnly; Secure; SameSite=Lax/);
 });
 test('connection tokens do not extend source authentication expiry', async () => {
   const f = await fixture();
@@ -88,17 +90,17 @@ test('CLI accepts project-status JSON and preserves conflict checks', async () =
 });
 
 test('D1-style store checks membership and updates one project with expected revision', async () => {
-  const user = { id: 42, login: 'alice' };
+  const user = { email: 'alice@example.com' };
   const calls = [];
   const modernStore = {
     async ensureAccess(_env, actualUser, role = '') {
-      calls.push(['access', actualUser.id, role]);
+      calls.push(['access', actualUser.email, role]);
     },
     async load() {
       return { data: { schemaVersion: 2, projects: [{ ...project, revision: '3' }] } };
     },
     async updateProject(_env, actualUser, incoming, expectedRevision) {
-      calls.push(['update', actualUser.id, incoming.projectId, expectedRevision]);
+      calls.push(['update', actualUser.email, incoming.projectId, expectedRevision]);
       return { created: false, project: { ...incoming, revision: '4' } };
     }
   };
@@ -117,7 +119,7 @@ test('D1-style store checks membership and updates one project with expected rev
     body: JSON.stringify({ project, expectedRevision: '3' })
   }), d1Env);
   assert.equal(updated.status, 200);
-  assert.deepEqual(calls.filter(call => call[0] === 'update')[0], ['update', 42, 'demo', '3']);
+  assert.deepEqual(calls.filter(call => call[0] === 'update')[0], ['update', 'alice@example.com', 'demo', '3']);
   assert.equal(calls.filter(call => call[0] === 'access').length, 2);
 });
 

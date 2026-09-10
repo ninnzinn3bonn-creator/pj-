@@ -17,5 +17,8 @@
     "@cloudflare/workers-types": "^5.20260910.1",
     "@types/node": "^22.20.2",
     "wrangler": "^4.129.0"
+  },
+  "dependencies": {
+    "jose": "^6.2.12"
   }
 }

@@ -8,20 +8,6 @@ function teamSlug(env) {
   return slug;
 }
 
-async function githubJson(fetchImpl, token, pathname) {
-  const response = await fetchImpl(`https://api.github.com${pathname}`, {
-    headers: {
-      Accept: 'application/vnd.github+json',
-      Authorization: `Bearer ${token}`,
-      'User-Agent': 'project-manager-team-worker',
-      'X-GitHub-Api-Version': '2022-11-28'
-    }
-  });
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw databaseError(data.message || 'GitHubユーザーを確認できません。', response.status === 404 ? 404 : 401);
-  return data;
-}
-
 function projectFromRow(row) {
   const document = JSON.parse(row.document);
   return {
@@ -36,35 +22,23 @@ function projectFromRow(row) {
   };
 }
 
-export function createD1Store(fetchImpl = fetch) {
-  async function currentUser(token) {
-    const data = await githubJson(fetchImpl, token, '/user');
-    return { login: data.login, id: Number(data.id), avatarUrl: data.avatar_url };
-  }
-
-  async function lookupUser(token, login) {
-    const normalized = String(login || '').trim();
-    if (!/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/.test(normalized)) throw databaseError('GitHubユーザー名が正しくありません。', 400);
-    const data = await githubJson(fetchImpl, token, `/users/${encodeURIComponent(normalized)}`);
-    return { login: data.login, id: Number(data.id), avatarUrl: data.avatar_url };
-  }
-
+export function createD1Store() {
   async function ensureAccess(env, user, requiredRole = '') {
     const slug = teamSlug(env);
-    const userId = Number(user?.id);
-    if (!Number.isInteger(userId)) throw databaseError('GitHubユーザーを確認できません。', 401);
+    const email = String(user?.email || '').trim().toLowerCase();
+    if (!email || !email.includes('@')) throw databaseError('メールアドレスを確認できません。', 401);
     const now = new Date().toISOString();
-    const adminId = Number(env.TEAM_ADMIN_GITHUB_ID || 0);
-    if (userId === adminId) {
+    const adminEmail = String(env.TEAM_ADMIN_EMAIL || '').trim().toLowerCase();
+    if (email === adminEmail) {
       await env.DB.batch([
         env.DB.prepare('INSERT OR IGNORE INTO teams (team_slug, name, created_at) VALUES (?1, ?2, ?3)').bind(slug, env.TEAM_NAME || slug, now),
-        env.DB.prepare(`INSERT INTO team_members (team_slug, github_user_id, github_login, role, active, created_at, updated_at)
-          VALUES (?1, ?2, ?3, 'admin', 1, ?4, ?4)
-          ON CONFLICT(team_slug, github_user_id) DO UPDATE SET github_login = excluded.github_login, role = 'admin', active = 1, updated_at = excluded.updated_at`)
-          .bind(slug, userId, user.login, now)
+        env.DB.prepare(`INSERT INTO access_members (team_slug, email, role, active, created_at, updated_at)
+          VALUES (?1, ?2, 'admin', 1, ?3, ?3)
+          ON CONFLICT(team_slug, email) DO UPDATE SET role = 'admin', active = 1, updated_at = excluded.updated_at`)
+          .bind(slug, email, now)
       ]);
     }
-    const member = await env.DB.prepare('SELECT role, active FROM team_members WHERE team_slug = ?1 AND github_user_id = ?2').bind(slug, userId).first();
+    const member = await env.DB.prepare('SELECT role, active FROM access_members WHERE team_slug = ?1 AND email = ?2').bind(slug, email).first();
     if (!member || member.active !== 1) throw databaseError('このチームのメンバーではありません。', 403, 'TEAM_ACCESS_DENIED');
     if (requiredRole === 'admin' && member.role !== 'admin') throw databaseError('チーム管理者の権限が必要です。', 403, 'TEAM_ADMIN_REQUIRED');
     return member;
@@ -95,6 +69,7 @@ export function createD1Store(fetchImpl = fetch) {
 
   async function updateProject(env, actor, incoming, expectedRevision) {
     const slug = teamSlug(env);
+    const actorName = actor.email || actor.login;
     const existingRow = await env.DB.prepare('SELECT * FROM projects WHERE team_slug = ?1 AND project_id = ?2').bind(slug, incoming.projectId).first();
     const existing = existingRow ? projectFromRow(existingRow) : null;
     const expected = String(expectedRevision || '');
@@ -112,12 +87,12 @@ export function createD1Store(fetchImpl = fetch) {
       try {
         const statements = [
           env.DB.prepare(`INSERT INTO projects (team_slug, project_id, document, revision, shared_at, shared_by, updated_at, updated_by)
-            VALUES (?1, ?2, ?3, 1, ?4, ?5, ?4, ?5)`).bind(slug, incoming.projectId, serialized, now, actor.login),
+            VALUES (?1, ?2, ?3, 1, ?4, ?5, ?4, ?5)`).bind(slug, incoming.projectId, serialized, now, actorName),
           env.DB.prepare(`INSERT INTO project_history (team_slug, project_id, project_revision, updated_at, updated_by, progress_before, progress_after, status_before, status_after)
-            VALUES (?1, ?2, 1, ?3, ?4, ?5, ?5, ?6, ?6)`).bind(slug, incoming.projectId, now, actor.login, incoming.progress, incoming.status)
+            VALUES (?1, ?2, 1, ?3, ?4, ?5, ?5, ?6, ?6)`).bind(slug, incoming.projectId, now, actorName, incoming.progress, incoming.status)
         ];
         if (architecture) statements.push(env.DB.prepare(`INSERT INTO project_architectures (team_slug, project_id, document, revision, updated_at, updated_by)
-          VALUES (?1, ?2, ?3, 1, ?4, ?5)`).bind(slug, incoming.projectId, JSON.stringify(architecture), now, actor.login));
+          VALUES (?1, ?2, ?3, 1, ?4, ?5)`).bind(slug, incoming.projectId, JSON.stringify(architecture), now, actorName));
         await env.DB.batch(statements);
       } catch (error) {
         const latest = (await load(env)).data.projects.find(item => item.projectId === incoming.projectId);
@@ -129,16 +104,16 @@ export function createD1Store(fetchImpl = fetch) {
 
     const nextRevision = Number(existing.revision) + 1;
     const update = env.DB.prepare(`UPDATE projects SET document = ?1, revision = ?2, updated_at = ?3, updated_by = ?4
-      WHERE team_slug = ?5 AND project_id = ?6 AND revision = ?7`).bind(serialized, nextRevision, now, actor.login, slug, incoming.projectId, Number(existing.revision));
+      WHERE team_slug = ?5 AND project_id = ?6 AND revision = ?7`).bind(serialized, nextRevision, now, actorName, slug, incoming.projectId, Number(existing.revision));
     const history = env.DB.prepare(`INSERT INTO project_history (team_slug, project_id, project_revision, updated_at, updated_by, progress_before, progress_after, status_before, status_after)
       SELECT ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9
       WHERE EXISTS (SELECT 1 FROM projects WHERE team_slug = ?1 AND project_id = ?2 AND revision = ?3 AND updated_at = ?4 AND updated_by = ?5)`)
-      .bind(slug, incoming.projectId, nextRevision, now, actor.login, existing.progress, incoming.progress, existing.status, incoming.status);
+      .bind(slug, incoming.projectId, nextRevision, now, actorName, existing.progress, incoming.progress, existing.status, incoming.status);
     const statements = [update, history];
     if (architecture) statements.push(env.DB.prepare(`INSERT INTO project_architectures (team_slug, project_id, document, revision, updated_at, updated_by)
       SELECT ?1, ?2, ?3, 1, ?4, ?5 WHERE EXISTS (SELECT 1 FROM projects WHERE team_slug = ?1 AND project_id = ?2 AND revision = ?6 AND updated_at = ?4)
       ON CONFLICT(team_slug, project_id) DO UPDATE SET document = excluded.document, revision = project_architectures.revision + 1, updated_at = excluded.updated_at, updated_by = excluded.updated_by`)
-      .bind(slug, incoming.projectId, JSON.stringify(architecture), now, actor.login, nextRevision));
+      .bind(slug, incoming.projectId, JSON.stringify(architecture), now, actorName, nextRevision));
     const results = await env.DB.batch(statements);
     if (!results[0].meta?.changes) {
       const latest = (await load(env)).data.projects.find(item => item.projectId === incoming.projectId);
@@ -149,25 +124,28 @@ export function createD1Store(fetchImpl = fetch) {
 
   async function listMembers(env) {
     const slug = teamSlug(env);
-    const result = await env.DB.prepare('SELECT github_user_id AS id, github_login AS login, role, active, updated_at AS updatedAt FROM team_members WHERE team_slug = ?1 ORDER BY role, github_login COLLATE NOCASE').bind(slug).all();
+    const result = await env.DB.prepare('SELECT id, email, role, active, updated_at AS updatedAt FROM access_members WHERE team_slug = ?1 ORDER BY role, email COLLATE NOCASE').bind(slug).all();
     return result.results;
   }
 
-  async function addMember(env, user, role = 'member') {
+  async function addMember(env, emailInput, role = 'member') {
     const slug = teamSlug(env);
+    const email = String(emailInput || '').trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw databaseError('メールアドレスが正しくありません。', 400);
     const now = new Date().toISOString();
-    await env.DB.prepare(`INSERT INTO team_members (team_slug, github_user_id, github_login, role, active, created_at, updated_at)
-      VALUES (?1, ?2, ?3, ?4, 1, ?5, ?5)
-      ON CONFLICT(team_slug, github_user_id) DO UPDATE SET github_login = excluded.github_login, role = excluded.role, active = 1, updated_at = excluded.updated_at`)
-      .bind(slug, user.id, user.login, role === 'admin' ? 'admin' : 'member', now).run();
-    return user;
+    await env.DB.prepare(`INSERT INTO access_members (team_slug, email, role, active, created_at, updated_at)
+      VALUES (?1, ?2, ?3, 1, ?4, ?4)
+      ON CONFLICT(team_slug, email) DO UPDATE SET role = excluded.role, active = 1, updated_at = excluded.updated_at`)
+      .bind(slug, email, role === 'admin' ? 'admin' : 'member', now).run();
+    return { email };
   }
 
-  async function removeMember(env, userId) {
+  async function removeMember(env, memberId) {
     const slug = teamSlug(env);
-    if (Number(userId) === Number(env.TEAM_ADMIN_GITHUB_ID)) throw databaseError('最初の管理者は削除できません。', 400);
-    await env.DB.prepare('UPDATE team_members SET active = 0, updated_at = ?1 WHERE team_slug = ?2 AND github_user_id = ?3').bind(new Date().toISOString(), slug, Number(userId)).run();
+    const member = await env.DB.prepare('SELECT email FROM access_members WHERE team_slug = ?1 AND id = ?2').bind(slug, Number(memberId)).first();
+    if (member?.email?.toLowerCase() === String(env.TEAM_ADMIN_EMAIL || '').toLowerCase()) throw databaseError('最初の管理者は削除できません。', 400);
+    await env.DB.prepare('UPDATE access_members SET active = 0, updated_at = ?1 WHERE team_slug = ?2 AND id = ?3').bind(new Date().toISOString(), slug, Number(memberId)).run();
   }
 
-  return { currentUser, lookupUser, ensureAccess, load, updateProject, listMembers, addMember, removeMember };
+  return { ensureAccess, load, updateProject, listMembers, addMember, removeMember };
 }

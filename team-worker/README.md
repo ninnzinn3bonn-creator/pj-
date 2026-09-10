@@ -4,28 +4,18 @@
 
 Cloudflare Workerを認証付きAPI、D1を共有データの正本として使います。公開URLは接続とメンバー管理だけを提供し、プロジェクト一覧は表示しません。共有プロジェクトは各メンバーのローカル台帳へ取得され、個人プロジェクトと同じ一覧に色付きで表示されます。
 
-通常のメンバーは [AI用導入手順](../docs/AI-SETUP.md) を利用してください。CloudflareへのデプロイやGitHub App作成は管理者だけが行います。
+通常のメンバーは [AI用導入手順](../docs/AI-SETUP.md) を利用してください。CloudflareへのデプロイやAccess設定は管理者だけが行います。
 
 ## 管理者の初回設定
 
-1. `wrangler.jsonc`の`TEAM_SLUG`、`TEAM_NAME`、`TEAM_ADMIN_GITHUB_ID`を設定します。
+1. `wrangler.jsonc`の`TEAM_SLUG`、`TEAM_NAME`、`TEAM_ADMIN_EMAIL`を設定します。
 2. `npx wrangler d1 create <database-name>`でD1を作り、`DB` bindingへdatabase IDを設定します。
 3. `npm ci`と`npx wrangler login`を実行します。
 4. `npx wrangler d1 migrations apply <database-name> --remote`でマイグレーションを適用します。
-5. `GITHUB_CLIENT_ID`、`GITHUB_CLIENT_SECRET`、`SESSION_SECRET`を`npx wrangler secret put`で設定します。秘密値をGitへ保存しません。
-6. `npm run deploy`で公開します。
-
-GitHub Appを初めて作る場合は次の承認アシスタントを使えます。
-
-```powershell
-node scripts/setup-github-app.mjs <公開HTTPS URL>
-```
-
-コールバック途中で補助サーバーだけが終了した場合は、元のURLのstateを使って再開します。
-
-```powershell
-node scripts/setup-github-app.mjs <公開HTTPS URL> <元のstate>
-```
+5. `SESSION_SECRET`を`npx wrangler secret put`で設定します。秘密値をGitへ保存しません。
+6. Cloudflare Accessで`<Worker URL>/auth/access`だけを保護し、許可メールとOne-time PINを設定します。
+7. AccessのチームドメインとApplication Audienceを`ACCESS_TEAM_DOMAIN`、`ACCESS_AUD`へ設定します。
+8. `npm run deploy`で公開します。
 
 ## 既存GitHub共有データの移行
 
@@ -39,9 +29,9 @@ node scripts/migrate-github-to-d1.mjs
 
 ## メンバーと認証
 
-最初の管理者は`TEAM_ADMIN_GITHUB_ID`と一致するGitHubユーザーです。管理者が接続ポータルへログインするとD1へ管理者行が作られます。以後はポータルのメンバー管理からGitHubユーザー名を追加・解除できます。
+最初の管理者は`TEAM_ADMIN_EMAIL`と一致するメール利用者です。管理者が接続ポータルへログインするとD1へ管理者行が作られます。以後はポータルからメンバーのメールアドレスを追加・解除できます。Access側の許可メールにも同じアドレスを登録してください。
 
-WorkerのURLを知っているだけでは共有データを取得できません。未ログインは401、チーム外ユーザーは403、変更APIの許可Origin不一致も403になります。接続トークンは元のGitHub認証期限を延長せず、最長7日です。
+WorkerのURLを知っているだけでは共有データを取得できません。未ログインは401、チーム外ユーザーは403、変更APIの許可Origin不一致も403になります。接続トークンは最長7日です。
 
 ## 同期と競合
 

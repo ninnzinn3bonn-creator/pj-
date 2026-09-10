@@ -24,7 +24,7 @@ async function loadMembers() {
   try {
     const data = await api('/api/members');
     $('#members-section').hidden = false;
-    $('#member-list').innerHTML = data.members.map(member => `<li><span><strong>@${escapeHtml(member.login)}</strong> · ${escapeHtml(member.role)}</span>${member.role === 'admin' ? '' : `<button data-remove-member="${member.id}">解除</button>`}</li>`).join('');
+    $('#member-list').innerHTML = data.members.map(member => `<li><span><strong>${escapeHtml(member.email)}</strong> · ${escapeHtml(member.role)}</span>${member.role === 'admin' ? '' : `<button data-remove-member="${member.id}">解除</button>`}</li>`).join('');
   } catch (error) {
     if (error.status !== 403) message(error.message, true);
   }
@@ -37,7 +37,7 @@ async function initialize() {
     $('#app-view').hidden = false;
     $('#user-label').hidden = false;
     $('#logout-link').hidden = false;
-    $('#user-label').textContent = `@${session.user.login}`;
+    $('#user-label').textContent = session.user.email;
     $('#team-note').textContent = `チーム: ${session.team}。プロジェクトは認証付きD1 APIからローカル台帳へ同期されます。`;
     await loadMembers();
   } catch (error) {
@@ -64,8 +64,8 @@ $('#member-form').addEventListener('submit', async event => {
   const button = event.submitter;
   button.disabled = true;
   try {
-    await api('/api/members', { method: 'POST', body: JSON.stringify({ login: $('#member-login').value.trim(), role: 'member' }) });
-    $('#member-login').value = '';
+    await api('/api/members', { method: 'POST', body: JSON.stringify({ email: $('#member-email').value.trim(), role: 'member' }) });
+    $('#member-email').value = '';
     await loadMembers();
     message('チームメンバーを追加しました。');
   } catch (error) { message(error.message, true); } finally { button.disabled = false; }

@@ -458,13 +458,13 @@ async function loadArchitectureMeta(project, { force = false } = {}) {
   if (!force && state.architectureMetaByProject.has(project.projectId)) {
     renderArchitectureCard(project, state.architectureMetaByProject.get(project.projectId));
   }
-  if (project._team) {
+  if (project._team && !project._local) {
     const architecture = project._teamVersion?.architecture || project.architecture;
     const meta = architecture
       ? normalizeArchitectureMeta({
           status: 'ready', exists: true,
           analyzedAt: architecture.document?.analyzed_at || project.architectureUpdatedAt || project.updatedAt,
-          revision: project.revision,
+          revision: project._teamVersion?.revision || project.revision,
           counts: { components: architecture.components?.length, edges: architecture.edges?.length, flows: architecture.flows?.length }
         })
       : normalizeArchitectureMeta({ status: 'missing', exists: false });
@@ -479,8 +479,16 @@ async function loadArchitectureMeta(project, { force = false } = {}) {
     renderArchitectureCard(project, meta);
     return meta;
   } catch (error) {
-    const meta = error.status === 404
-      ? normalizeArchitectureMeta({ status: 'missing', exists: false })
+    const sharedArchitecture = project._teamVersion?.architecture;
+    const meta = error.status === 404 && sharedArchitecture
+      ? normalizeArchitectureMeta({
+          status: 'ready', exists: true,
+          analyzedAt: sharedArchitecture.document?.analyzed_at || project._teamVersion.architectureUpdatedAt || project._teamVersion.updatedAt,
+          revision: project._teamVersion.revision,
+          counts: { components: sharedArchitecture.components?.length, edges: sharedArchitecture.edges?.length, flows: sharedArchitecture.flows?.length }
+        })
+      : error.status === 404
+        ? normalizeArchitectureMeta({ status: 'missing', exists: false })
       : normalizeArchitectureMeta({ status: 'error', last_error: error.message, has_valid_document: false });
     state.architectureMetaByProject.set(project.projectId, meta);
     renderArchitectureCard(project, meta);
@@ -686,7 +694,14 @@ async function renderArchitecturePage(project) {
   let documentData = null;
   if (meta.hasValidDocument || ['ready', 'stale'].includes(meta.status)) {
     try {
-      const response = project._team ? (project._teamVersion?.architecture || project.architecture) : await api(architectureBasePath(project.projectId));
+      let response;
+      if (project._local) {
+        try { response = await api(architectureBasePath(project.projectId)); }
+        catch (error) {
+          if (error.status !== 404 || !project._teamVersion?.architecture) throw error;
+          response = project._teamVersion.architecture;
+        }
+      } else response = project._teamVersion?.architecture || project.architecture;
       documentData = response?.architecture || response?.data || response;
       const errors = window.ArchitectureViewer?.validate(documentData) || ['概念図Viewerを読み込めませんでした。'];
       if (errors.length) throw new Error(errors.join('\n'));
@@ -917,12 +932,7 @@ async function saveManual() {
     const existing = editing ? state.projects.find(project => project.projectId === editing) : null;
     let project;
     if (existing?._team) {
-      const config = teamConfig();
-      const result = await teamApi(config, `/api/projects/${encodeURIComponent(editing)}`, {
-        method: 'PUT', body: JSON.stringify({ project: payload, expectedRevision: existing.revision })
-      });
-      project = result.project;
-      if (existing._local) await api(`/api/projects/${encodeURIComponent(editing)}`, { method: 'PUT', body: JSON.stringify(payload) });
+      project = await saveSharedProject(existing, payload);
     } else {
       project = await api(editing ? `/api/projects/${encodeURIComponent(editing)}` : '/api/projects', {
         method: editing ? 'PUT' : 'POST',
@@ -1025,8 +1035,8 @@ async function commitAi() {
     elements.aiDialog.close();
     await loadProjects();
     const merged = state.projects.find(item => item.projectId === project.projectId);
-    if (state.aiPreview.mode === 'update' && merged?._team && merged._local) {
-      await syncLocalToTeam(merged, { confirm: false });
+    if (state.aiPreview.mode === 'update' && merged?._team && merged._local && merged._syncState === 'local-ahead') {
+      await syncLocalToTeam(merged, { confirm: false, silent: true });
     }
     showMessage(state.aiPreview.mode === 'create' ? 'AI出力から登録しました。' : 'AI出力で更新しました。');
     if (state.aiPreview.mode === 'update') location.hash = `#/project/${encodeURIComponent(project.projectId)}`;
@@ -1242,6 +1252,39 @@ function teamProjectPayload(project) {
   const fields = ['projectId','name','appUrl','adminUrl','repositoryUrl','developmentUrl','status','progress','owner','tags','summary','currentTasks','nextTasks','blockers'];
   return Object.fromEntries(fields.map((key) => [key, project[key]]));
 }
+function teamRevision(project) {
+  return project?._teamVersion?.revision || (!project?._local ? project?.revision : '');
+}
+
+async function putTeamProject(project, draft) {
+  const config = teamConfig();
+  const base = project._teamVersion || project;
+  try {
+    return await teamApi(config, `/api/projects/${encodeURIComponent(project.projectId)}`, {
+      method: 'PUT', body: JSON.stringify({ project: teamProjectPayload(draft), expectedRevision: teamRevision(project) })
+    });
+  } catch (error) {
+    if (!error.latest) throw error;
+    const resolution = TeamSync.threeWayMerge(base, draft, error.latest);
+    if (resolution.conflicts.length) {
+      const names = resolution.conflicts.map(item => item.field).join('、');
+      throw Object.assign(new Error(`同じ項目が別のメンバーにも更新されています（${names}）。最新内容を取り込んでから再編集してください。`), { latest: error.latest, conflicts: resolution.conflicts });
+    }
+    return teamApi(config, `/api/projects/${encodeURIComponent(project.projectId)}`, {
+      method: 'PUT', body: JSON.stringify({ project: teamProjectPayload(resolution.merged), expectedRevision: error.latest.revision })
+    });
+  }
+}
+
+async function saveSharedProject(project, draft) {
+  let local = project._localVersion;
+  if (project._local) {
+    local = await api(`/api/projects/${encodeURIComponent(project.projectId)}`, { method: 'PUT', body: JSON.stringify(draft) });
+  }
+  const result = await putTeamProject(project, draft);
+  saveTeamSyncMeta(teamConfig(), local || draft, result.project);
+  return result.project;
+}
 async function teamApi(config, path, options = {}) {
   const url = new URL(config.url);
   if (url.protocol !== 'https:' || url.username || url.password) throw new Error('チームURLはHTTPSで指定してください。');
@@ -1292,18 +1335,23 @@ function teamDifferenceText(project) {
   return TeamSync.differences(project._localVersion, project._teamVersion).map(item => `${labels[item.field] || item.field}\nローカル: ${formatCompareValue(item.local, item.field)}\nチーム: ${formatCompareValue(item.team, item.field)}`).join('\n\n') || '内容は一致しています。';
 }
 
-async function syncLocalToTeam(project, { confirm = true } = {}) {
+async function syncLocalToTeam(project, { confirm = true, silent = false } = {}) {
   const config = teamConfig();
   const local = project._localVersion || project;
   const team = project._teamVersion;
   if (!local || !team) return;
   if (confirm && !await confirmAction(`以下のローカル更新をチームへ反映します。\n\n${teamDifferenceText(project)}`, 'チームへ反映')) return;
   try {
-    const result = await teamApi(config, `/api/projects/${encodeURIComponent(project.projectId)}`, { method:'PUT', body:JSON.stringify({ project:teamProjectPayload(local), expectedRevision:team.revision }) });
+    const result = await putTeamProject(project, local);
     saveTeamSyncMeta(config, local, result.project);
     await loadProjects();
-    showMessage('ローカルの更新をチームへ反映しました。');
-  } catch (error) { await loadProjects(); showMessage(error.message, true); }
+    if (!silent) showMessage('ローカルの更新をチームへ反映しました。');
+    return result.project;
+  } catch (error) {
+    await loadProjects();
+    if (!silent) showMessage(error.message, true);
+    throw error;
+  }
 }
 
 async function syncTeamToLocal(project) {
@@ -1324,10 +1372,10 @@ async function unshareTeamProject(project) {
   const localNote = project._local
     ? 'このPCのローカルプロジェクトと概念図は残ります。'
     : 'このPCにローカル版がないため、解除後は一覧から消えます。';
-  if (!await confirmAction(`「${project.name}」をチーム共有から解除します。チーム側の進捗・履歴・共有概念図が削除され、全メンバーの共有一覧から消えます。${localNote}`, '共有を解除')) return;
+  if (!await confirmAction(`「${project.name}」をチーム共有から解除します。共有一覧からは消えますが、管理者が復元できる状態でチーム側に保管されます。${localNote}`, '共有を解除')) return;
   try {
     await teamApi(config, `/api/projects/${encodeURIComponent(project.projectId)}`, {
-      method: 'DELETE', body: JSON.stringify({ expectedRevision: project.revision })
+      method: 'DELETE', body: JSON.stringify({ expectedRevision: teamRevision(project) })
     });
     localStorage.removeItem(teamRevisionKey(config, project.projectId));
     await loadProjects();
@@ -1432,10 +1480,7 @@ elements.rows.addEventListener('change', async (event) => {
   try {
     if (previous._team) {
       const payload = { ...teamProjectPayload(previous), status: select.value };
-      await teamApi(teamConfig(), `/api/projects/${encodeURIComponent(previous.projectId)}`, {
-        method: 'PUT', body: JSON.stringify({ project: payload, expectedRevision: previous.revision })
-      });
-      if (previous._local) await api(`/api/projects/${encodeURIComponent(previous.projectId)}`, { method: 'PUT', body: JSON.stringify({ status: select.value }) });
+      await saveSharedProject(previous, payload);
     } else {
       await api(`/api/projects/${encodeURIComponent(previous.projectId)}`, {
         method: 'PUT', body: JSON.stringify({ status: select.value })

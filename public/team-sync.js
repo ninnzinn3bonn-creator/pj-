@@ -24,5 +24,23 @@
     return { state: localChanged && teamChanged ? 'conflict' : localChanged ? 'local-ahead' : teamChanged ? 'team-ahead' : 'unverified', localFingerprint, teamFingerprint };
   }
   function differences(local, team) { return FIELDS.filter(field => JSON.stringify(local?.[field] ?? '') !== JSON.stringify(team?.[field] ?? '')).map(field => ({ field, local: local?.[field], team: team?.[field] })); }
-  return { FIELDS, fingerprint, classify, differences };
+  function threeWayMerge(base, draft, latest) {
+    const merged = { ...latest };
+    const conflicts = [];
+    for (const field of FIELDS) {
+      const baseValue = base?.[field];
+      const draftValue = draft?.[field];
+      const latestValue = latest?.[field];
+      const localChanged = JSON.stringify(draftValue ?? '') !== JSON.stringify(baseValue ?? '');
+      const remoteChanged = JSON.stringify(latestValue ?? '') !== JSON.stringify(baseValue ?? '');
+      if (!localChanged) continue;
+      if (remoteChanged && JSON.stringify(draftValue ?? '') !== JSON.stringify(latestValue ?? '')) {
+        conflicts.push({ field, base: baseValue, local: draftValue, team: latestValue });
+      } else {
+        merged[field] = draftValue;
+      }
+    }
+    return { merged, conflicts };
+  }
+  return { FIELDS, fingerprint, classify, differences, threeWayMerge };
 }));

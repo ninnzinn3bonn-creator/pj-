@@ -80,7 +80,7 @@ export function createD1Store() {
     const result = await env.DB.prepare(`SELECT p.*, a.document AS architecture_document, a.updated_at AS architecture_updated_at
       FROM projects p
       LEFT JOIN project_architectures a ON a.team_slug = p.team_slug AND a.project_id = p.project_id
-      WHERE p.team_slug = ?1 ORDER BY p.updated_at DESC`).bind(slug).all();
+      WHERE p.team_slug = ?1 AND p.deleted_at IS NULL ORDER BY p.updated_at DESC`).bind(slug).all();
     const projects = result.results.map(projectFromRow);
     if (!projects.length) return { data: { schemaVersion: 2, team: slug, projects: [] } };
     const history = await env.DB.prepare(`SELECT project_id, updated_at, updated_by, progress_before, progress_after, status_before, status_after
@@ -102,7 +102,8 @@ export function createD1Store() {
     const slug = teamSlug(env, actor);
     const actorName = actor.email || actor.login;
     const existingRow = await env.DB.prepare('SELECT * FROM projects WHERE team_slug = ?1 AND project_id = ?2').bind(slug, incoming.projectId).first();
-    const existing = existingRow ? projectFromRow(existingRow) : null;
+    const deletedRow = existingRow?.deleted_at ? existingRow : null;
+    const existing = existingRow && !deletedRow ? projectFromRow(existingRow) : null;
     const expected = String(expectedRevision || '');
     if (existing && (!expected || expected !== existing.revision)) throw Object.assign(databaseError('共有先に新しい更新があります。最新内容を確認してください。', 409, 'PROJECT_CONFLICT'), { latest: (await load(env, actor)).data.projects.find(item => item.projectId === incoming.projectId) });
     if (!existing && expected) throw databaseError('共有プロジェクトが見つかりません。', 409, 'PROJECT_MISSING');
@@ -116,6 +117,22 @@ export function createD1Store() {
 
     if (!existing) {
       try {
+        if (deletedRow) {
+          const nextRevision = Number(deletedRow.revision) + 1;
+          const statements = [
+            env.DB.prepare(`UPDATE projects SET document = ?1, revision = ?2, deleted_at = NULL, deleted_by = NULL,
+              shared_at = ?3, shared_by = ?4, updated_at = ?3, updated_by = ?4
+              WHERE team_slug = ?5 AND project_id = ?6 AND deleted_at IS NOT NULL`).bind(serialized, nextRevision, now, actorName, slug, incoming.projectId),
+            env.DB.prepare(`INSERT INTO project_history (team_slug, project_id, project_revision, updated_at, updated_by, progress_before, progress_after, status_before, status_after)
+              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`).bind(slug, incoming.projectId, nextRevision, now, actorName, JSON.parse(deletedRow.document).progress, incoming.progress, JSON.parse(deletedRow.document).status, incoming.status)
+          ];
+          if (architecture) statements.push(env.DB.prepare(`INSERT INTO project_architectures (team_slug, project_id, document, revision, updated_at, updated_by)
+            VALUES (?1, ?2, ?3, 1, ?4, ?5)
+            ON CONFLICT(team_slug, project_id) DO UPDATE SET document = excluded.document, revision = project_architectures.revision + 1, updated_at = excluded.updated_at, updated_by = excluded.updated_by`)
+            .bind(slug, incoming.projectId, JSON.stringify(architecture), now, actorName));
+          await env.DB.batch(statements);
+          return { project: (await load(env, actor)).data.projects.find(item => item.projectId === incoming.projectId), created: true, restored: true };
+        }
         const statements = [
           env.DB.prepare(`INSERT INTO projects (team_slug, project_id, document, revision, shared_at, shared_by, updated_at, updated_by)
             VALUES (?1, ?2, ?3, 1, ?4, ?5, ?4, ?5)`).bind(slug, incoming.projectId, serialized, now, actorName),
@@ -155,9 +172,17 @@ export function createD1Store() {
 
   async function deleteProject(env, actor, projectId, expectedRevision) {
     const slug = teamSlug(env, actor);
-    const result = await env.DB.prepare(`DELETE FROM projects
-      WHERE team_slug = ?1 AND project_id = ?2 AND revision = ?3`)
-      .bind(slug, projectId, Number(expectedRevision)).run();
+    const row = await env.DB.prepare('SELECT revision, shared_by FROM projects WHERE team_slug = ?1 AND project_id = ?2 AND deleted_at IS NULL').bind(slug, projectId).first();
+    if (!row) throw databaseError('共有プロジェクトが見つかりません。', 404, 'PROJECT_MISSING');
+    const member = await env.DB.prepare('SELECT role FROM access_members WHERE team_slug = ?1 AND email = ?2 AND active = 1').bind(slug, actor.email).first();
+    if (member?.role !== 'admin' && String(row.shared_by).toLowerCase() !== String(actor.email).toLowerCase()) {
+      throw databaseError('共有を解除できるのはチーム管理者または共有した本人だけです。', 403, 'PROJECT_DELETE_DENIED');
+    }
+    const now = new Date().toISOString();
+    const result = await env.DB.prepare(`UPDATE projects
+      SET deleted_at = ?1, deleted_by = ?2, revision = revision + 1, updated_at = ?1, updated_by = ?2
+      WHERE team_slug = ?3 AND project_id = ?4 AND revision = ?5 AND deleted_at IS NULL`)
+      .bind(now, actor.email, slug, projectId, Number(expectedRevision)).run();
     if (result.meta?.changes) return { removed: true, projectId };
     const latest = (await load(env, actor)).data.projects.find(item => item.projectId === projectId);
     if (!latest) throw databaseError('共有プロジェクトが見つかりません。', 404, 'PROJECT_MISSING');
@@ -184,8 +209,12 @@ export function createD1Store() {
 
   async function removeMember(env, actor, memberId) {
     const slug = teamSlug(env, actor);
-    const member = await env.DB.prepare('SELECT email FROM access_members WHERE team_slug = ?1 AND id = ?2').bind(slug, Number(memberId)).first();
+    const member = await env.DB.prepare('SELECT email, role, active FROM access_members WHERE team_slug = ?1 AND id = ?2').bind(slug, Number(memberId)).first();
     if (member?.email?.toLowerCase() === String(env.TEAM_ADMIN_EMAIL || '').toLowerCase()) throw databaseError('最初の管理者は削除できません。', 400);
+    if (member?.active === 1 && member?.role === 'admin') {
+      const admins = await env.DB.prepare("SELECT COUNT(*) AS count FROM access_members WHERE team_slug = ?1 AND role = 'admin' AND active = 1").bind(slug).first();
+      if (Number(admins?.count || 0) <= 1) throw databaseError('チームには最低1人の管理者が必要です。', 400, 'LAST_ADMIN');
+    }
     await env.DB.prepare('UPDATE access_members SET active = 0, updated_at = ?1 WHERE team_slug = ?2 AND id = ?3').bind(new Date().toISOString(), slug, Number(memberId)).run();
   }
 

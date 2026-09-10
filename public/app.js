@@ -243,6 +243,12 @@ function teamCacheKey(config) {
 function teamRevisionKey(config, projectId) {
   try { return `pm-team-revision:${new URL(config.url).origin}:${config.team || 'unselected'}:${projectId}`; } catch { return `pm-team-revision:${projectId}`; }
 }
+function teamSyncKey(config, projectId) { return `${teamRevisionKey(config, projectId)}:sync`; }
+function loadTeamSyncMeta(config, projectId) { try { return JSON.parse(localStorage.getItem(teamSyncKey(config, projectId)) || 'null'); } catch { return null; } }
+function saveTeamSyncMeta(config, local, team) {
+  localStorage.setItem(teamSyncKey(config, local.projectId), JSON.stringify({ localFingerprint: TeamSync.fingerprint(local), teamFingerprint: TeamSync.fingerprint(team), teamRevision: team.revision, syncedAt: new Date().toISOString() }));
+  localStorage.setItem(teamRevisionKey(config, local.projectId), team.revision);
+}
 
 function loadCachedTeamProjects(config) {
   try {
@@ -252,10 +258,17 @@ function loadCachedTeamProjects(config) {
 }
 
 function mergeProjects() {
+  const config = teamConfig();
   const localById = new Map(state.localProjects.map(project => [project.projectId, project]));
   const teamById = new Map(state.teamProjects.map(project => [project.projectId, project]));
   state.projects = state.localProjects.map(local => {
     const shared = teamById.get(local.projectId);
+    if (shared) {
+      const result = TeamSync.classify(local, shared, loadTeamSyncMeta(config, local.projectId));
+      if (result.state === 'synced') saveTeamSyncMeta(config, local, shared);
+      const selected = result.state === 'team-ahead' ? shared : local;
+      return { ...selected, _localVersion: local, _teamVersion: shared, _team: true, _local: true, _syncState: result.state };
+    }
     return shared
       ? { ...shared, lastUpdateSource: 'team', _team: true, _local: true, _syncState: 'synced' }
       : { ...local, _team: false, _local: true, _syncState: 'local' };
@@ -263,6 +276,10 @@ function mergeProjects() {
   for (const shared of state.teamProjects) {
     if (!localById.has(shared.projectId)) state.projects.push({ ...shared, lastUpdateSource: 'team', _team: true, _local: false, _syncState: 'team-only' });
   }
+}
+
+function syncLabel(project) {
+  return { synced: 'チーム共有・同期済み', 'local-ahead': 'チーム未反映', 'team-ahead': 'チーム更新あり', conflict: '競合・確認必要', unverified: '同期確認が必要', 'team-only': 'チームから追加' }[project._syncState] || 'チーム共有';
 }
 
 async function loadTeamProjects({ quiet = false } = {}) {
@@ -346,7 +363,7 @@ function renderList() {
     return `
       <tr class="${project._team ? 'shared-project' : ''}" tabindex="0" data-project-id="${escapeHtml(project.projectId)}" aria-label="${escapeHtml(project.name)}の詳細を開く">
         <td class="project-name">
-          ${escapeHtml(project.name)} ${project._team ? `<span class="team-badge">${project._local ? 'チーム共有' : 'チームから追加'}</span>` : ''}
+          ${escapeHtml(project.name)} ${project._team ? `<span class="team-badge sync-${escapeHtml(project._syncState)}">${escapeHtml(syncLabel(project))}</span>` : ''}
           <span class="project-id-row">
             <span class="project-id">${escapeHtml(project.projectId)}</span>
             <button type="button" class="copy-id-button" data-copy-project-id="${escapeHtml(project.projectId)}" aria-label="${escapeHtml(project.name)}のプロジェクトIDをコピー" title="プロジェクトIDをコピー">コピー</button>
@@ -442,7 +459,7 @@ async function loadArchitectureMeta(project, { force = false } = {}) {
     renderArchitectureCard(project, state.architectureMetaByProject.get(project.projectId));
   }
   if (project._team) {
-    const architecture = project.architecture;
+    const architecture = project._teamVersion?.architecture || project.architecture;
     const meta = architecture
       ? normalizeArchitectureMeta({
           status: 'ready', exists: true,
@@ -484,8 +501,11 @@ function renderDetail(project) {
         </div>
       </div>
       <div class="detail-actions">
-        ${project._team ? '<span class="team-badge detail-team-badge">チーム共有・D1同期</span>' : '<button type="button" data-detail-action="share">チームへ共有</button>'}
-        ${project._team ? '' : '<button type="button" data-detail-action="ai-update">AI出力で更新</button>'}
+        ${project._team ? `<span class="team-badge detail-team-badge sync-${escapeHtml(project._syncState)}">${escapeHtml(syncLabel(project))}</span>` : '<button type="button" data-detail-action="share">チームへ共有</button>'}
+        ${['local-ahead','conflict','unverified'].includes(project._syncState) ? '<button type="button" class="primary" data-detail-action="sync-to-team">チームへ反映</button>' : ''}
+        ${project._syncState === 'team-ahead' ? '<button type="button" class="primary" data-detail-action="sync-from-team">チーム更新を取り込む</button>' : ''}
+        ${project._team && project._local && project._syncState !== 'synced' ? '<button type="button" data-detail-action="compare-team">差分を確認</button>' : ''}
+        ${project._local ? '<button type="button" data-detail-action="ai-update">AI出力で更新</button>' : ''}
         <button type="button" data-detail-action="edit" class="primary">手動編集</button>
         <details class="action-menu">
           <summary>その他の操作</summary>
@@ -666,7 +686,7 @@ async function renderArchitecturePage(project) {
   let documentData = null;
   if (meta.hasValidDocument || ['ready', 'stale'].includes(meta.status)) {
     try {
-      const response = project._team ? project.architecture : await api(architectureBasePath(project.projectId));
+      const response = project._team ? (project._teamVersion?.architecture || project.architecture) : await api(architectureBasePath(project.projectId));
       documentData = response?.architecture || response?.data || response;
       const errors = window.ArchitectureViewer?.validate(documentData) || ['概念図Viewerを読み込めませんでした。'];
       if (errors.length) throw new Error(errors.join('\n'));
@@ -1004,6 +1024,10 @@ async function commitAi() {
     });
     elements.aiDialog.close();
     await loadProjects();
+    const merged = state.projects.find(item => item.projectId === project.projectId);
+    if (state.aiPreview.mode === 'update' && merged?._team && merged._local) {
+      await syncLocalToTeam(merged, { confirm: false });
+    }
     showMessage(state.aiPreview.mode === 'create' ? 'AI出力から登録しました。' : 'AI出力で更新しました。');
     if (state.aiPreview.mode === 'update') location.hash = `#/project/${encodeURIComponent(project.projectId)}`;
   } catch (error) {
@@ -1247,7 +1271,7 @@ async function shareTeamProject(project) {
     }
     const key = teamRevisionKey(config, project.projectId);
     const result = await teamApi(config, '/api/projects/share', { method: 'POST', body: JSON.stringify({ project: payload, expectedRevision: localStorage.getItem(key) || '' }) });
-    localStorage.setItem(key, result.project.revision);
+    saveTeamSyncMeta(config, project._localVersion || project, result.project);
     await loadProjects();
     showMessage('チームへ共有し、一覧へ統合しました。');
   } catch (error) {
@@ -1256,11 +1280,41 @@ async function shareTeamProject(project) {
       if (!await confirmAction(`共有先に @${error.latest.updatedBy || 'メンバー'} の更新があります。以下の差分を確認してください。\n\n${differences}\n\nこのPCの内容で共有先を更新しますか？キャンセルすると共有先を維持します。`, '差分を確認して更新')) return;
       try {
         const result = await teamApi(config, '/api/projects/share', { method: 'POST', body: JSON.stringify({ project: payload, expectedRevision: error.latest.revision }) });
-        localStorage.setItem(teamRevisionKey(config, project.projectId), result.project.revision);
+        saveTeamSyncMeta(config, project._localVersion || project, result.project);
         showMessage('確認した内容でチームを更新しました。');
       } catch (retryError) { showMessage(retryError.message, true); }
     } else showMessage(error.message, true);
   }
+}
+
+function teamDifferenceText(project) {
+  const labels = { name:'名前', appUrl:'アプリURL', adminUrl:'管理者URL', repositoryUrl:'リポジトリURL', developmentUrl:'開発URL', status:'状態', progress:'進捗', owner:'担当者', tags:'タグ', summary:'概要', currentTasks:'現在の作業', nextTasks:'次の作業', blockers:'課題' };
+  return TeamSync.differences(project._localVersion, project._teamVersion).map(item => `${labels[item.field] || item.field}\nローカル: ${formatCompareValue(item.local, item.field)}\nチーム: ${formatCompareValue(item.team, item.field)}`).join('\n\n') || '内容は一致しています。';
+}
+
+async function syncLocalToTeam(project, { confirm = true } = {}) {
+  const config = teamConfig();
+  const local = project._localVersion || project;
+  const team = project._teamVersion;
+  if (!local || !team) return;
+  if (confirm && !await confirmAction(`以下のローカル更新をチームへ反映します。\n\n${teamDifferenceText(project)}`, 'チームへ反映')) return;
+  try {
+    const result = await teamApi(config, `/api/projects/${encodeURIComponent(project.projectId)}`, { method:'PUT', body:JSON.stringify({ project:teamProjectPayload(local), expectedRevision:team.revision }) });
+    saveTeamSyncMeta(config, local, result.project);
+    await loadProjects();
+    showMessage('ローカルの更新をチームへ反映しました。');
+  } catch (error) { await loadProjects(); showMessage(error.message, true); }
+}
+
+async function syncTeamToLocal(project) {
+  const config = teamConfig(); const team = project._teamVersion;
+  if (!project._localVersion || !team) return;
+  if (!await confirmAction(`チーム版をこのPCへ取り込みます。ローカルの対象項目は置き換わります。\n\n${teamDifferenceText(project)}`, 'チーム版を取り込む')) return;
+  try {
+    const local = await api(`/api/projects/${encodeURIComponent(project.projectId)}`, { method:'PUT', body:JSON.stringify(teamProjectPayload(team)) });
+    saveTeamSyncMeta(config, local, team);
+    await loadProjects(); showMessage('チーム更新をローカルへ取り込みました。');
+  } catch (error) { showMessage(error.message, true); }
 }
 
 async function unshareTeamProject(project) {
@@ -1405,6 +1459,9 @@ elements.detailContent.addEventListener('click', (event) => {
   if (action === 'edit') openManual(project);
   if (action === 'share') void shareTeamProject(project);
   if (action === 'unshare') void unshareTeamProject(project);
+  if (action === 'sync-to-team') void syncLocalToTeam(project);
+  if (action === 'sync-from-team') void syncTeamToLocal(project);
+  if (action === 'compare-team') void confirmAction(teamDifferenceText(project), '閉じる');
   if (action === 'ai-update') openAiImport('update', project.projectId);
   if (action === 'copy-update') copyText(updatePrompt(project));
   if (action === 'architecture') location.hash = `#/project/${encodeURIComponent(project.projectId)}/architecture`;

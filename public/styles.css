@@ -187,6 +187,9 @@ th { background: #e8eaed; color: #42464b; font-size: 12px; font-weight: 650; whi
   vertical-align: middle;
 }
 .detail-team-badge { min-height: 34px; margin-left: 0; padding: 5px 10px; }
+.team-badge.sync-local-ahead, .team-badge.sync-unverified { border-color: #b49142; background: #fff8df; color: #73530a; }
+.team-badge.sync-team-ahead { border-color: #5181a2; background: #eef7ff; color: #155c91; }
+.team-badge.sync-conflict { border-color: #b65a60; background: #fff0f0; color: var(--danger); }
 #team-sync-button[data-state="offline"] { border-color: #b49142; background: #fff8df; color: #73530a; }
 .project-id-row, .detail-id-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
 .project-id-row { margin-top: 2px; }

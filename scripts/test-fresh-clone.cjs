@@ -51,7 +51,8 @@ function run(command, args, options = {}) {
 }
 
 async function gitValue(args) {
-  const result = await run('git', args, { cwd: path.resolve(__dirname, '..') });
+  const repositoryRoot = path.resolve(__dirname, '..');
+  const result = await run('git', ['-c', `safe.directory=${repositoryRoot}`, ...args], { cwd: repositoryRoot });
   return result.stdout.trim();
 }
 

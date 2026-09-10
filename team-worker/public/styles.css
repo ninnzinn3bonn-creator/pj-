@@ -135,6 +135,17 @@ main {
   color: var(--muted);
   font-size: 13px;
 }
+.portal-card {
+  max-width: 820px;
+  margin-bottom: 14px;
+  padding: 18px;
+  border: 1px solid var(--dark);
+  background: #fff;
+}
+.portal-card h2 { margin-top: 0; }
+#member-form { display: grid; grid-template-columns: minmax(220px, 1fr) auto; align-items: end; gap: 8px; }
+#member-list { margin: 16px 0 0; padding: 0; list-style: none; }
+#member-list li { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid var(--border); }
 .project-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
@@ -311,7 +322,8 @@ textarea {
     flex-direction: column;
   }
   .project-grid,
-  .form-grid {
+  .form-grid,
+  #member-form {
     grid-template-columns: 1fr;
   }
   .wide {

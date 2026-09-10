@@ -1,5 +1,6 @@
 import { seal, unseal, revisionFor } from './crypto.mjs';
 import { createGitHubStore } from './github-store.mjs';
+import { createD1Store } from './d1-store.mjs';
 import architectureSchema from '../../lib/architecture-schema.js';
 
 const SESSION_COOKIE = 'pm_team_session';
@@ -76,11 +77,13 @@ async function sessionFromRequest(request, env) {
   try { return await unseal(encoded, env.SESSION_SECRET); } catch { throw Object.assign(new Error('セッションが無効です。再度ログインしてください。'), { status: 401 }); }
 }
 
-async function updateProjectStore(store, env, token, actor, body, projectId = '') {
+async function updateProjectStore(store, env, credential, actor, body, projectId = '') {
   const incoming = validateProject(body.project || body);
   if (projectId && incoming.projectId !== projectId) throw Object.assign(new Error('projectIdは変更できません。'), { status: 400 });
+  if (store.updateProject) return store.updateProject(env, actor, incoming, body.expectedRevision);
+  const actorLogin = actor.login || actor;
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    const loaded = await store.load(env, token);
+    const loaded = await store.load(env, credential);
     const index = loaded.data.projects.findIndex((item) => item.projectId === incoming.projectId);
     const existing = index >= 0 ? loaded.data.projects[index] : null;
     const expected = String(body.expectedRevision || '');
@@ -90,19 +93,19 @@ async function updateProjectStore(store, env, token, actor, body, projectId = ''
     if (!existing && expected) throw Object.assign(new Error('共有プロジェクトが見つかりません。'), { status: 409, code: 'PROJECT_MISSING' });
     const now = new Date().toISOString();
     const history = [...(existing?.history || []), {
-      updatedAt: now, updatedBy: actor, progressBefore: existing?.progress ?? incoming.progress,
+      updatedAt: now, updatedBy: actorLogin, progressBefore: existing?.progress ?? incoming.progress,
       progressAfter: incoming.progress, statusBefore: existing?.status || incoming.status, statusAfter: incoming.status
     }].slice(-100);
     const withoutRevision = {
       ...(existing?.architecture ? { architecture: existing.architecture } : {}),
-      ...incoming, sharedAt: existing?.sharedAt || now, updatedAt: now, updatedBy: actor,
-      sharedBy: existing?.sharedBy || actor, history
+      ...incoming, sharedAt: existing?.sharedAt || now, updatedAt: now, updatedBy: actorLogin,
+      sharedBy: existing?.sharedBy || actorLogin, history
     };
     const project = { ...withoutRevision, revision: await revisionFor(withoutRevision) };
     const next = { ...loaded.data, updatedAt: now, projects: [...loaded.data.projects] };
     if (index >= 0) next.projects[index] = project; else next.projects.push(project);
     try {
-      await store.save(env, token, loaded, next, actor);
+      await store.save(env, credential, loaded, next, actorLogin);
       return { project, created: index < 0 };
     } catch (error) {
       if (error.status !== 409 || attempt === 2) throw error;
@@ -111,10 +114,11 @@ async function updateProjectStore(store, env, token, actor, body, projectId = ''
   throw Object.assign(new Error('共有データを更新できません。'), { status: 409 });
 }
 
-export function createApp({ fetchImpl = fetch, store = createGitHubStore(fetchImpl) } = {}) {
+export function createApp({ fetchImpl = fetch, store = null } = {}) {
   return async function handle(request, env) {
     const url = new URL(request.url);
     const cors = corsHeaders(request, env);
+    const activeStore = store || (env.DB ? createD1Store(fetchImpl) : createGitHubStore(fetchImpl));
     if (request.method === 'OPTIONS') {
       if (!allowedOrigin(request, env)) return json({ error: '許可されていないOriginです。' }, 403);
       return new Response(null, { status: 204, headers: cors });
@@ -149,8 +153,9 @@ export function createApp({ fetchImpl = fetch, store = createGitHubStore(fetchIm
         });
         const tokenData = await tokenResponse.json();
         if (!tokenResponse.ok || !tokenData.access_token) throw Object.assign(new Error('GitHubログインを完了できません。'), { status: 401 });
-        const user = await store.currentUser(tokenData.access_token);
-        await store.load(env, tokenData.access_token);
+        const user = await activeStore.currentUser(tokenData.access_token);
+        if (activeStore.ensureAccess) await activeStore.ensureAccess(env, user);
+        else await activeStore.load(env, tokenData.access_token);
         const duration = Math.min(SESSION_DURATION, Number(tokenData.expires_in || SESSION_DURATION / 1000) * 1000);
         const session = await seal({ accessToken: tokenData.access_token, user, expiresAt: Date.now() + duration }, env.SESSION_SECRET);
         return new Response(null, { status: 302, headers: { Location: '/', 'Set-Cookie': cookie(SESSION_COOKIE, session, duration / 1000) } });
@@ -159,22 +164,41 @@ export function createApp({ fetchImpl = fetch, store = createGitHubStore(fetchIm
 
       if (url.pathname.startsWith('/api/')) {
         const session = await sessionFromRequest(request, env);
+        if (activeStore.ensureAccess) await activeStore.ensureAccess(env, session.user);
+        const credential = env.DB ? session.user : session.accessToken;
         if (url.pathname === '/api/session' && request.method === 'GET') return json({ user: session.user, team: env.TEAM_SLUG }, 200, cors);
         if (url.pathname === '/api/connection-token' && request.method === 'POST') {
           const token = await seal(session, env.SESSION_SECRET);
           return json({ token, teamUrl: url.origin, expiresAt: new Date(session.expiresAt).toISOString() }, 200, cors);
         }
         if (url.pathname === '/api/projects' && request.method === 'GET') {
-          const loaded = await store.load(env, session.accessToken);
-          return json({ schemaVersion: 1, team: env.TEAM_SLUG, repository: env.GITHUB_REPOSITORY, projects: loaded.data.projects }, 200, cors);
+          const loaded = await activeStore.load(env, credential);
+          return json({ schemaVersion: loaded.data.schemaVersion || 2, team: env.TEAM_SLUG, storage: env.DB ? 'd1' : 'github', projects: loaded.data.projects }, 200, cors);
         }
         if (url.pathname === '/api/projects/share' && request.method === 'POST') {
-          const result = await updateProjectStore(store, env, session.accessToken, session.user.login, await bodyJson(request));
+          const result = await updateProjectStore(activeStore, env, credential, session.user, await bodyJson(request));
           return json(result, result.created ? 201 : 200, cors);
+        }
+        if (url.pathname === '/api/members' && request.method === 'GET' && activeStore.listMembers) {
+          await activeStore.ensureAccess(env, session.user, 'admin');
+          return json({ members: await activeStore.listMembers(env) }, 200, cors);
+        }
+        if (url.pathname === '/api/members' && request.method === 'POST' && activeStore.addMember) {
+          await activeStore.ensureAccess(env, session.user, 'admin');
+          const input = await bodyJson(request);
+          const member = await activeStore.lookupUser(session.accessToken, input.login);
+          await activeStore.addMember(env, member, input.role);
+          return json({ member }, 201, cors);
+        }
+        const memberMatch = url.pathname.match(/^\/api\/members\/(\d+)$/);
+        if (memberMatch && request.method === 'DELETE' && activeStore.removeMember) {
+          await activeStore.ensureAccess(env, session.user, 'admin');
+          await activeStore.removeMember(env, Number(memberMatch[1]));
+          return json({ removed: true }, 200, cors);
         }
         const match = url.pathname.match(/^\/api\/projects\/([^/]+)$/);
         if (match && request.method === 'PUT') {
-          const result = await updateProjectStore(store, env, session.accessToken, session.user.login, await bodyJson(request), decodeURIComponent(match[1]));
+          const result = await updateProjectStore(activeStore, env, credential, session.user, await bodyJson(request), decodeURIComponent(match[1]));
           return json(result, 200, cors);
         }
         throw Object.assign(new Error('APIが見つかりません。'), { status: 404 });

@@ -164,7 +164,24 @@ tbody tr:last-child td { border-bottom: 0; }
 th { background: #e8eaed; color: #42464b; font-size: 12px; font-weight: 650; white-space: nowrap; }
 .project-table tbody tr { cursor: pointer; }
 .project-table tbody tr:hover { background: #f4f7f8; }
+.project-table tbody tr.shared-project { background: #eef7f3; box-shadow: inset 4px 0 0 #2f7d61; }
+.project-table tbody tr.shared-project:hover { background: #e3f2ec; }
 .project-name { min-width: 210px; font-weight: 650; }
+.team-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  margin-left: 6px;
+  padding: 1px 7px;
+  border: 1px solid #5d927d;
+  background: #f4fbf8;
+  color: #205f49;
+  font-size: 11px;
+  font-weight: 700;
+  vertical-align: middle;
+}
+.detail-team-badge { min-height: 34px; margin-left: 0; padding: 5px 10px; }
+#team-sync-button[data-state="offline"] { border-color: #b49142; background: #fff8df; color: #73530a; }
 .project-id-row, .detail-id-row { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
 .project-id-row { margin-top: 2px; }
 .project-id { color: var(--muted); font: 11px/1.4 Consolas, monospace; font-weight: 400; }

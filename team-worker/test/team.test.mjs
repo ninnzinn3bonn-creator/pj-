@@ -86,3 +86,52 @@ test('CLI accepts project-status JSON and preserves conflict checks', async () =
     assert.equal(updated.created, false);
   } finally { await rm(directory, { recursive: true }); }
 });
+
+test('D1-style store checks membership and updates one project with expected revision', async () => {
+  const user = { id: 42, login: 'alice' };
+  const calls = [];
+  const modernStore = {
+    async ensureAccess(_env, actualUser, role = '') {
+      calls.push(['access', actualUser.id, role]);
+    },
+    async load() {
+      return { data: { schemaVersion: 2, projects: [{ ...project, revision: '3' }] } };
+    },
+    async updateProject(_env, actualUser, incoming, expectedRevision) {
+      calls.push(['update', actualUser.id, incoming.projectId, expectedRevision]);
+      return { created: false, project: { ...incoming, revision: '4' } };
+    }
+  };
+  const d1Env = { ...env, DB: {} };
+  const app = createApp({ store: modernStore });
+  const token = await seal({ user, accessToken: 'oauth-token', expiresAt: Date.now() + 60000 }, env.SESSION_SECRET);
+  const headers = { Authorization: `Bearer ${token}` };
+
+  const listed = await app(new Request('https://team.test/api/projects', { headers }), d1Env);
+  assert.equal(listed.status, 200);
+  assert.equal((await listed.json()).schemaVersion, 2);
+
+  const updated = await app(new Request('https://team.test/api/projects/demo', {
+    method: 'PUT',
+    headers: { ...headers, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ project, expectedRevision: '3' })
+  }), d1Env);
+  assert.equal(updated.status, 200);
+  assert.deepEqual(calls.filter(call => call[0] === 'update')[0], ['update', 42, 'demo', '3']);
+  assert.equal(calls.filter(call => call[0] === 'access').length, 2);
+});
+
+test('D1-style store rejects a removed member before reading shared data', async () => {
+  const deniedStore = {
+    async ensureAccess() {
+      throw Object.assign(new Error('チームメンバーではありません。'), { status: 403, code: 'TEAM_ACCESS_DENIED' });
+    }
+  };
+  const app = createApp({ store: deniedStore });
+  const token = await seal({ user: { id: 7, login: 'former-member' }, accessToken: 'oauth-token', expiresAt: Date.now() + 60000 }, env.SESSION_SECRET);
+  const response = await app(new Request('https://team.test/api/projects', {
+    headers: { Authorization: `Bearer ${token}` }
+  }), { ...env, DB: {} });
+  assert.equal(response.status, 403);
+  assert.equal((await response.json()).code, 'TEAM_ACCESS_DENIED');
+});

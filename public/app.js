@@ -31,11 +31,14 @@ const UPDATE_SOURCE_LABELS = {
   'web-ai': 'Web・AI取込',
   cli: 'CLI',
   'codex-skill': 'Codexスキル',
+  team: 'チーム共有',
   backup: 'バックアップ'
 };
 
 const state = {
   projects: [],
+  localProjects: [],
+  teamProjects: [],
   editingProjectId: null,
   aiText: '',
   aiPreview: null,
@@ -202,13 +205,73 @@ function clearInlineError(element) {
 async function loadProjects() {
   try {
     const data = await api('/api/projects');
-    state.projects = data.projects;
+    state.localProjects = data.projects;
+    await loadTeamProjects({ quiet: true });
+    mergeProjects();
     updateOwnerFilter();
     renderList();
     renderRoute();
   } catch (error) {
     showMessage(error.message, true);
   }
+}
+
+function teamCacheKey(config) {
+  try { return `pm-team-cache:${new URL(config.url).origin}`; } catch { return 'pm-team-cache'; }
+}
+
+function loadCachedTeamProjects(config) {
+  try {
+    const cached = JSON.parse(localStorage.getItem(teamCacheKey(config)) || '{}');
+    return Array.isArray(cached.projects) ? cached.projects : [];
+  } catch { return []; }
+}
+
+function mergeProjects() {
+  const localById = new Map(state.localProjects.map(project => [project.projectId, project]));
+  const teamById = new Map(state.teamProjects.map(project => [project.projectId, project]));
+  state.projects = state.localProjects.map(local => {
+    const shared = teamById.get(local.projectId);
+    return shared
+      ? { ...shared, lastUpdateSource: 'team', _team: true, _local: true, _syncState: 'synced' }
+      : { ...local, _team: false, _local: true, _syncState: 'local' };
+  });
+  for (const shared of state.teamProjects) {
+    if (!localById.has(shared.projectId)) state.projects.push({ ...shared, lastUpdateSource: 'team', _team: true, _local: false, _syncState: 'team-only' });
+  }
+}
+
+async function loadTeamProjects({ quiet = false } = {}) {
+  const config = teamConfig();
+  const button = document.querySelector('#team-sync-button');
+  button.hidden = !config.url || !config.token;
+  if (!config.url || !config.token) {
+    state.teamProjects = [];
+    return;
+  }
+  try {
+    const data = await teamApi(config, '/api/projects');
+    state.teamProjects = data.projects || [];
+    localStorage.setItem(teamCacheKey(config), JSON.stringify({ fetchedAt: new Date().toISOString(), projects: state.teamProjects }));
+    button.dataset.state = 'ready';
+  } catch (error) {
+    state.teamProjects = loadCachedTeamProjects(config);
+    button.dataset.state = 'offline';
+    if (!quiet) showMessage(`チーム同期に失敗しました。保存済み表示を使用します: ${error.message}`, true);
+  }
+}
+
+async function syncTeamProjects() {
+  const button = document.querySelector('#team-sync-button');
+  button.disabled = true;
+  try {
+    await loadTeamProjects();
+    mergeProjects();
+    updateOwnerFilter();
+    renderList();
+    renderRoute();
+    if (button.dataset.state !== 'offline') showMessage('チームの最新データを取り込みました。');
+  } finally { button.disabled = false; }
 }
 
 function updateOwnerFilter() {
@@ -253,9 +316,9 @@ function renderList() {
   elements.rows.innerHTML = projects.map((project) => {
     const url = project.appUrl || project.developmentUrl;
     return `
-      <tr tabindex="0" data-project-id="${escapeHtml(project.projectId)}" aria-label="${escapeHtml(project.name)}の詳細を開く">
+      <tr class="${project._team ? 'shared-project' : ''}" tabindex="0" data-project-id="${escapeHtml(project.projectId)}" aria-label="${escapeHtml(project.name)}の詳細を開く">
         <td class="project-name">
-          ${escapeHtml(project.name)}
+          ${escapeHtml(project.name)} ${project._team ? `<span class="team-badge">${project._local ? 'チーム共有' : 'チームから追加'}</span>` : ''}
           <span class="project-id-row">
             <span class="project-id">${escapeHtml(project.projectId)}</span>
             <button type="button" class="copy-id-button" data-copy-project-id="${escapeHtml(project.projectId)}" aria-label="${escapeHtml(project.name)}のプロジェクトIDをコピー" title="プロジェクトIDをコピー">コピー</button>
@@ -350,6 +413,20 @@ async function loadArchitectureMeta(project, { force = false } = {}) {
   if (!force && state.architectureMetaByProject.has(project.projectId)) {
     renderArchitectureCard(project, state.architectureMetaByProject.get(project.projectId));
   }
+  if (project._team) {
+    const architecture = project.architecture;
+    const meta = architecture
+      ? normalizeArchitectureMeta({
+          status: 'ready', exists: true,
+          analyzedAt: architecture.document?.analyzed_at || project.architectureUpdatedAt || project.updatedAt,
+          revision: project.revision,
+          counts: { components: architecture.components?.length, edges: architecture.edges?.length, flows: architecture.flows?.length }
+        })
+      : normalizeArchitectureMeta({ status: 'missing', exists: false });
+    state.architectureMetaByProject.set(project.projectId, meta);
+    renderArchitectureCard(project, meta);
+    return meta;
+  }
   try {
     const raw = await api(`${architectureBasePath(project.projectId)}/meta`);
     const meta = normalizeArchitectureMeta(raw);
@@ -379,8 +456,8 @@ function renderDetail(project) {
         </div>
       </div>
       <div class="detail-actions">
-        <button type="button" data-detail-action="share">チームへ共有・更新</button>
-        <button type="button" data-detail-action="ai-update">AI出力で更新</button>
+        ${project._team ? '<span class="team-badge detail-team-badge">チーム共有・D1同期</span>' : '<button type="button" data-detail-action="share">チームへ共有</button>'}
+        ${project._team ? '' : '<button type="button" data-detail-action="ai-update">AI出力で更新</button>'}
         <button type="button" data-detail-action="edit" class="primary">手動編集</button>
         <details class="action-menu">
           <summary>その他の操作</summary>
@@ -389,7 +466,7 @@ function renderDetail(project) {
             ${project.adminUrl ? `<a class="button-link" href="${escapeHtml(project.adminUrl)}" target="_blank" rel="noopener noreferrer">管理者サイトを開く</a>` : ''}
             ${project.repositoryUrl ? `<a class="button-link" href="${escapeHtml(project.repositoryUrl)}" target="_blank" rel="noopener noreferrer">リポジトリを開く</a>` : ''}
             <button type="button" data-detail-action="copy-update">更新用プロンプトをコピー</button>
-            <button type="button" data-detail-action="delete" class="danger-text">削除</button>
+            ${project._local ? '<button type="button" data-detail-action="delete" class="danger-text">ローカルから削除</button>' : ''}
           </div>
         </details>
       </div>
@@ -560,8 +637,8 @@ async function renderArchitecturePage(project) {
   let documentData = null;
   if (meta.hasValidDocument || ['ready', 'stale'].includes(meta.status)) {
     try {
-      const response = await api(architectureBasePath(project.projectId));
-      documentData = response.architecture || response.data || response;
+      const response = project._team ? project.architecture : await api(architectureBasePath(project.projectId));
+      documentData = response?.architecture || response?.data || response;
       const errors = window.ArchitectureViewer?.validate(documentData) || ['概念図Viewerを読み込めませんでした。'];
       if (errors.length) throw new Error(errors.join('\n'));
       if (documentData.project.project_id !== project.projectId) throw new Error(`概念図のproject_idが「${project.projectId}」と一致しません。`);
@@ -788,10 +865,21 @@ async function saveManual() {
   try {
     const payload = manualPayload();
     const editing = state.editingProjectId;
-    const project = await api(editing ? `/api/projects/${encodeURIComponent(editing)}` : '/api/projects', {
-      method: editing ? 'PUT' : 'POST',
-      body: JSON.stringify(payload)
-    });
+    const existing = editing ? state.projects.find(project => project.projectId === editing) : null;
+    let project;
+    if (existing?._team) {
+      const config = teamConfig();
+      const result = await teamApi(config, `/api/projects/${encodeURIComponent(editing)}`, {
+        method: 'PUT', body: JSON.stringify({ project: payload, expectedRevision: existing.revision })
+      });
+      project = result.project;
+      if (existing._local) await api(`/api/projects/${encodeURIComponent(editing)}`, { method: 'PUT', body: JSON.stringify(payload) });
+    } else {
+      project = await api(editing ? `/api/projects/${encodeURIComponent(editing)}` : '/api/projects', {
+        method: editing ? 'PUT' : 'POST',
+        body: JSON.stringify(payload)
+      });
+    }
     elements.manualDialog.close();
     await loadProjects();
     showMessage(editing ? 'プロジェクトを更新しました。' : 'プロジェクトを登録しました。');
@@ -1097,6 +1185,10 @@ async function commitBackup() {
 function teamConfig() {
   try { return JSON.parse(localStorage.getItem('pm-team') || '{}'); } catch { return {}; }
 }
+function teamProjectPayload(project) {
+  const fields = ['projectId','name','appUrl','adminUrl','repositoryUrl','developmentUrl','status','progress','owner','tags','summary','currentTasks','nextTasks','blockers'];
+  return Object.fromEntries(fields.map((key) => [key, project[key]]));
+}
 async function teamApi(config, path, options = {}) {
   const url = new URL(config.url);
   if (url.protocol !== 'https:' || url.username || url.password) throw new Error('チームURLはHTTPSで指定してください。');
@@ -1117,8 +1209,7 @@ async function shareTeamProject(project) {
   if (!config.url || !config.token) return openTeamSettings();
   let payload;
   try {
-    const fields = ['projectId','name','appUrl','adminUrl','repositoryUrl','developmentUrl','status','progress','owner','tags','summary','currentTasks','nextTasks','blockers'];
-    payload = Object.fromEntries(fields.map((key) => [key, project[key]]));
+    payload = teamProjectPayload(project);
     if (!await confirmAction(`「${project.name}」の進捗・URL・タスクをチーム全員に共有します。ローカルの履歴やプロジェクトフォルダ設定は送信しません。`, '共有する')) return;
     const meta = await api(`${architectureBasePath(project.projectId)}/meta`);
     if (normalizeArchitectureMeta(meta).hasValidDocument && await confirmAction('保存済みの概念図も共有しますか？図に含まれるソースパスや説明もチームに公開されます。', '概念図も共有')) {
@@ -1128,7 +1219,8 @@ async function shareTeamProject(project) {
     const key = `pm-team-revision:${new URL(config.url).origin}:${project.projectId}`;
     const result = await teamApi(config, '/api/projects/share', { method: 'POST', body: JSON.stringify({ project: payload, expectedRevision: localStorage.getItem(key) || '' }) });
     localStorage.setItem(key, result.project.revision);
-    showMessage('チームへ共有しました。チームサイトで確認できます。');
+    await loadProjects();
+    showMessage('チームへ共有し、一覧へ統合しました。');
   } catch (error) {
     if (error.latest) {
       const differences = Object.keys(payload).filter(key => JSON.stringify(payload[key]) !== JSON.stringify(error.latest[key])).map(key => `${key}\n共有先: ${JSON.stringify(error.latest[key])}\nこのPC: ${JSON.stringify(payload[key])}`).join('\n\n');
@@ -1149,14 +1241,21 @@ document.querySelector('#team-save').addEventListener('click', async () => {
     config.url = new URL(config.url).origin;
     localStorage.setItem('pm-team', JSON.stringify(config));
     document.querySelector('#team-dialog').close();
-    showMessage('チーム接続を保存しました。');
+    await loadProjects();
+    showMessage('チーム接続を保存し、共有データを一覧へ統合しました。');
   } catch (error) { showInlineError(document.querySelector('#team-error'), error); }
 });
 document.querySelector('#team-disconnect').addEventListener('click', () => {
   localStorage.removeItem('pm-team');
   document.querySelector('#team-token').value = '';
+  state.teamProjects = [];
+  mergeProjects();
+  updateOwnerFilter();
+  renderList();
+  document.querySelector('#team-sync-button').hidden = true;
   showMessage('このブラウザのチーム接続を解除しました。');
 });
+document.querySelector('#team-sync-button').addEventListener('click', syncTeamProjects);
 document.querySelector('#new-project-button').addEventListener('click', () => openManual());
 document.querySelector('#ai-import-button').addEventListener('click', () => openAiImport());
 document.querySelector('#cli-button').addEventListener('click', openCliDialog);
@@ -1224,10 +1323,17 @@ elements.rows.addEventListener('change', async (event) => {
   if (!previous) return;
   select.disabled = true;
   try {
-    await api(`/api/projects/${encodeURIComponent(previous.projectId)}`, {
-      method: 'PUT',
-      body: JSON.stringify({ status: select.value })
-    });
+    if (previous._team) {
+      const payload = { ...teamProjectPayload(previous), status: select.value };
+      await teamApi(teamConfig(), `/api/projects/${encodeURIComponent(previous.projectId)}`, {
+        method: 'PUT', body: JSON.stringify({ project: payload, expectedRevision: previous.revision })
+      });
+      if (previous._local) await api(`/api/projects/${encodeURIComponent(previous.projectId)}`, { method: 'PUT', body: JSON.stringify({ status: select.value }) });
+    } else {
+      await api(`/api/projects/${encodeURIComponent(previous.projectId)}`, {
+        method: 'PUT', body: JSON.stringify({ status: select.value })
+      });
+    }
     await loadProjects();
     showMessage('管理状態を更新しました。');
   } catch (error) {

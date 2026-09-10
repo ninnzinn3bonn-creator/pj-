@@ -203,6 +203,8 @@ npm run test:fresh-clone
 
 配布版は`v1.1.0`のようなタグをpushすると、GitHub ActionsがNode.js 22と24の両方で全テストを実行し、成功時だけZIP付きGitHub Releaseを作成します。利用者はReleaseのZIPを展開し、Node.js 22または24で`start.bat`を起動してください。実データと`.project-manager.json`はGitに含まれません。
 
+アプリは起動時に最新Releaseを確認し、新版がある場合だけ画面上部へ通知します。「ダウンロード」から配布ZIPを取得できます。ReleaseにはSHA-256ファイルと生成済みのCodex・Claude Code用プラグインを含みます。既存の`data/`と`.project-manager.json`は新しいZIPで上書きしないでください。この更新確認機能を持たないv1.1.0以前からは、最初の1回だけReleaseまたは`git pull`による手動更新が必要です。
+
 ## 公開時の注意
 
 このアプリは信頼できる1台のPC内での利用を想定しています。認証、HTTPS、利用者ごとの権限管理は備えていません。localhost限定を解除したり、リバースプロキシ経由でLAN・インターネットへ公開したりしないでください。

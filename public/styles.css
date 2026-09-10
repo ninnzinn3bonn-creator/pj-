@@ -120,6 +120,12 @@ main { margin: 18px 24px 36px; }
 }
 
 .message.error { border-color: #c1787d; background: #fff0f0; color: var(--danger); }
+.update-banner { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 10px 24px; border-bottom: 1px solid #b28a2e; background: #fff8df; }
+.update-banner[hidden] { display: none; }
+.update-banner p { margin: 2px 0 0; color: #65501e; font-size: 13px; }
+.update-actions { display: flex; flex-wrap: wrap; gap: 7px; }
+.primary-link { background: #25292d; border-color: #25292d; color: #fff; }
+.primary-link:hover { background: #000; }
 
 .section-heading {
   display: flex;
@@ -338,6 +344,8 @@ code { font-family: Consolas, "Courier New", monospace; }
 }
 
 @media (max-width: 620px) {
+  .update-banner { align-items: stretch; flex-direction: column; }
+  .update-actions { display: grid; grid-template-columns: 1fr; }
   .site-header { padding: 14px 12px; }
   main { margin: 12px; }
   .section-heading, .detail-header { align-items: stretch; flex-direction: column; }

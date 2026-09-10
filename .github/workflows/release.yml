@@ -28,15 +28,25 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
       - name: Create source package
         shell: pwsh
         run: |
           $tag = '${{ github.ref_name }}'
-          git archive --format=zip --output "local-project-manager-$tag.zip" HEAD
+          $stage = Join-Path $env:RUNNER_TEMP 'project-manager-release'
+          New-Item -ItemType Directory -Path $stage | Out-Null
+          git archive HEAD | tar -x -C $stage
+          Push-Location $stage
+          node scripts/prepare-plugins.cjs
+          Pop-Location
+          tar -a -c -f "local-project-manager-$tag.zip" -C $stage .
+          (Get-FileHash "local-project-manager-$tag.zip" -Algorithm SHA256).Hash.ToLower() + "  local-project-manager-$tag.zip" | Set-Content "local-project-manager-$tag.zip.sha256"
       - name: Publish GitHub Release
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           $tag = '${{ github.ref_name }}'
-          gh release create $tag "local-project-manager-$tag.zip#Windows source package" --verify-tag --generate-notes --title $tag
+          gh release create $tag "local-project-manager-$tag.zip#Windows source package" "local-project-manager-$tag.zip.sha256#SHA-256" --verify-tag --generate-notes --title $tag

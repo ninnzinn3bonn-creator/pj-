@@ -56,6 +56,11 @@ const state = {
 };
 
 const elements = {
+  updateBanner: document.querySelector('#update-banner'),
+  updateTitle: document.querySelector('#update-title'),
+  updateNote: document.querySelector('#update-note'),
+  updateDetails: document.querySelector('#update-details'),
+  updateDownload: document.querySelector('#update-download'),
   listView: document.querySelector('#list-view'),
   detailView: document.querySelector('#detail-view'),
   rows: document.querySelector('#project-rows'),
@@ -107,6 +112,21 @@ const elements = {
   architectureImportPreview: document.querySelector('#architecture-import-preview'),
   architectureImportCommit: document.querySelector('#architecture-import-commit-button')
 };
+
+async function checkForUpdate() {
+  try {
+    const update = await api('/api/update');
+    if (!update.available || localStorage.getItem('pm-update-dismissed') === update.latestVersion) return;
+    elements.updateTitle.textContent = `新しいバージョン v${update.latestVersion} が利用できます`;
+    elements.updateNote.textContent = `現在 v${update.currentVersion}。ダウンロード後にZIPを展開してください。dataフォルダは上書きしないでください。`;
+    elements.updateDetails.href = update.releaseUrl;
+    elements.updateDownload.href = update.downloadUrl;
+    elements.updateDownload.dataset.version = update.latestVersion;
+    elements.updateBanner.hidden = false;
+  } catch {
+    // 更新確認の失敗でローカル台帳の利用を妨げない。
+  }
+}
 
 function escapeHtml(value) {
   return String(value ?? '')
@@ -1442,4 +1462,10 @@ Object.entries(STATUS_LABELS).forEach(([value, label]) => {
   elements.statusFilter.insertAdjacentHTML('beforeend', `<option value="${value}">${escapeHtml(label)}</option>`);
 });
 
+document.querySelector('#update-dismiss').addEventListener('click', () => {
+  const version = elements.updateDownload.dataset.version;
+  if (version) localStorage.setItem('pm-update-dismissed', version);
+  elements.updateBanner.hidden = true;
+});
+void checkForUpdate();
 loadProjects();

@@ -9,6 +9,7 @@ const { version: APP_VERSION } = require('./package.json');
 const { assertLocalRequest } = require('./lib/local-access');
 const { assertSupportedNodeVersion } = require('./lib/runtime-version');
 const { saveJsonAtomic } = require('./lib/storage');
+const { REPOSITORY, releaseStatus } = require('./lib/update-check');
 const {
   architectureRevision,
   compareArchitectures,
@@ -723,6 +724,16 @@ async function handleApi(request, response, url) {
         apply: '進捗に反映'
       }
     });
+  }
+
+  if (method === 'GET' && url.pathname === '/api/update') {
+    const githubResponse = await fetch(`https://api.github.com/repos/${REPOSITORY}/releases/latest`, {
+      headers: { Accept: 'application/vnd.github+json', 'User-Agent': `local-project-manager/${APP_VERSION}` },
+      signal: AbortSignal.timeout(5000)
+    });
+    if (githubResponse.status === 404) return sendJson(response, 200, { available: false, currentVersion: APP_VERSION });
+    if (!githubResponse.ok) throw apiError(502, '更新情報を取得できません。');
+    return sendJson(response, 200, releaseStatus(APP_VERSION, await githubResponse.json()));
   }
 
   if (method === 'GET' && url.pathname === '/api/projects') {

@@ -147,26 +147,49 @@ export function createApp({ fetchImpl = fetch, store = null, verifyAccess = acce
       }
       if (url.pathname === '/auth/access') {
         if (!env.SESSION_SECRET) return json({ error: 'チーム管理者がメール認証を設定中です。' }, 503);
-        const user = await verifyAccess(request, env);
+        let user = await verifyAccess(request, env);
+        if (activeStore.bootstrapUser) user = await activeStore.bootstrapUser(env, user);
         if (activeStore.ensureAccess) await activeStore.ensureAccess(env, user);
         const duration = SESSION_DURATION;
         const session = await seal({ user, expiresAt: Date.now() + duration }, env.SESSION_SECRET);
         return new Response(null, { status: 302, headers: { Location: '/', 'Set-Cookie': cookie(SESSION_COOKIE, session, duration / 1000) } });
       }
-      if (url.pathname === '/auth/logout') return new Response(null, { status: 302, headers: { Location: '/', 'Set-Cookie': cookie(SESSION_COOKIE, '', 0) } });
+      if (url.pathname === '/auth/logout') {
+        const location = env.ACCESS_TEAM_DOMAIN
+          ? `https://${env.ACCESS_TEAM_DOMAIN}/cdn-cgi/access/logout?returnTo=${encodeURIComponent(url.origin)}`
+          : '/';
+        return new Response(null, { status: 302, headers: { Location: location, 'Set-Cookie': cookie(SESSION_COOKIE, '', 0) } });
+      }
 
       if (url.pathname.startsWith('/api/')) {
         const session = await sessionFromRequest(request, env);
         if (activeStore.ensureAccess) await activeStore.ensureAccess(env, session.user);
         const credential = env.DB ? session.user : session.accessToken;
-        if (url.pathname === '/api/session' && request.method === 'GET') return json({ user: session.user, team: env.TEAM_SLUG }, 200, cors);
+        if (url.pathname === '/api/session' && request.method === 'GET') {
+          const teams = activeStore.listTeams ? await activeStore.listTeams(env, session.user) : [];
+          return json({ user: session.user, team: session.user.teamSlug || env.TEAM_SLUG, teams }, 200, cors);
+        }
+        if (url.pathname === '/api/teams' && request.method === 'POST' && activeStore.createTeam) {
+          const input = await bodyJson(request);
+          const team = await activeStore.createTeam(env, session.user, input.name);
+          const user = { ...session.user, teamSlug: team.teamSlug };
+          const token = await seal({ user, expiresAt: session.expiresAt }, env.SESSION_SECRET);
+          return json({ team, token }, 201, { ...cors, 'Set-Cookie': cookie(SESSION_COOKIE, token, Math.max(0, (session.expiresAt - Date.now()) / 1000)) });
+        }
+        if (url.pathname === '/api/session/team' && request.method === 'POST') {
+          const input = await bodyJson(request);
+          const user = { ...session.user, teamSlug: String(input.teamSlug || '') };
+          await activeStore.ensureAccess(env, user);
+          const token = await seal({ user, expiresAt: session.expiresAt }, env.SESSION_SECRET);
+          return json({ team: user.teamSlug, token }, 200, { ...cors, 'Set-Cookie': cookie(SESSION_COOKIE, token, Math.max(0, (session.expiresAt - Date.now()) / 1000)) });
+        }
         if (url.pathname === '/api/connection-token' && request.method === 'POST') {
           const token = await seal(session, env.SESSION_SECRET);
-          return json({ token, teamUrl: url.origin, expiresAt: new Date(session.expiresAt).toISOString() }, 200, cors);
+          return json({ token, teamUrl: url.origin, team: session.user.teamSlug, expiresAt: new Date(session.expiresAt).toISOString() }, 200, cors);
         }
         if (url.pathname === '/api/projects' && request.method === 'GET') {
           const loaded = await activeStore.load(env, credential);
-          return json({ schemaVersion: loaded.data.schemaVersion || 2, team: env.TEAM_SLUG, storage: env.DB ? 'd1' : 'github', projects: loaded.data.projects }, 200, cors);
+          return json({ schemaVersion: loaded.data.schemaVersion || 2, team: session.user.teamSlug || env.TEAM_SLUG, storage: env.DB ? 'd1' : 'github', projects: loaded.data.projects }, 200, cors);
         }
         if (url.pathname === '/api/projects/share' && request.method === 'POST') {
           const result = await updateProjectStore(activeStore, env, credential, session.user, await bodyJson(request));
@@ -174,18 +197,18 @@ export function createApp({ fetchImpl = fetch, store = null, verifyAccess = acce
         }
         if (url.pathname === '/api/members' && request.method === 'GET' && activeStore.listMembers) {
           await activeStore.ensureAccess(env, session.user, 'admin');
-          return json({ members: await activeStore.listMembers(env) }, 200, cors);
+          return json({ members: await activeStore.listMembers(env, session.user) }, 200, cors);
         }
         if (url.pathname === '/api/members' && request.method === 'POST' && activeStore.addMember) {
           await activeStore.ensureAccess(env, session.user, 'admin');
           const input = await bodyJson(request);
-          const member = await activeStore.addMember(env, input.email, input.role);
+          const member = await activeStore.addMember(env, session.user, input.email, input.role);
           return json({ member }, 201, cors);
         }
         const memberMatch = url.pathname.match(/^\/api\/members\/(\d+)$/);
         if (memberMatch && request.method === 'DELETE' && activeStore.removeMember) {
           await activeStore.ensureAccess(env, session.user, 'admin');
-          await activeStore.removeMember(env, Number(memberMatch[1]));
+          await activeStore.removeMember(env, session.user, Number(memberMatch[1]));
           return json({ removed: true }, 200, cors);
         }
         const match = url.pathname.match(/^\/api\/projects\/([^/]+)$/);

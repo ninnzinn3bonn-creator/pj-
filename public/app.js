@@ -217,7 +217,11 @@ async function loadProjects() {
 }
 
 function teamCacheKey(config) {
-  try { return `pm-team-cache:${new URL(config.url).origin}`; } catch { return 'pm-team-cache'; }
+  try { return `pm-team-cache:${new URL(config.url).origin}:${config.team || 'unselected'}`; } catch { return 'pm-team-cache'; }
+}
+
+function teamRevisionKey(config, projectId) {
+  try { return `pm-team-revision:${new URL(config.url).origin}:${config.team || 'unselected'}:${projectId}`; } catch { return `pm-team-revision:${projectId}`; }
 }
 
 function loadCachedTeamProjects(config) {
@@ -242,7 +246,7 @@ function mergeProjects() {
 }
 
 async function loadTeamProjects({ quiet = false } = {}) {
-  const config = teamConfig();
+  let config = teamConfig();
   const button = document.querySelector('#team-sync-button');
   button.hidden = !config.url || !config.token;
   if (!config.url || !config.token) {
@@ -251,6 +255,10 @@ async function loadTeamProjects({ quiet = false } = {}) {
   }
   try {
     const data = await teamApi(config, '/api/projects');
+    if (data.team && config.team !== data.team) {
+      config = { ...config, team: data.team };
+      localStorage.setItem('pm-team', JSON.stringify(config));
+    }
     state.teamProjects = data.projects || [];
     localStorage.setItem(teamCacheKey(config), JSON.stringify({ fetchedAt: new Date().toISOString(), projects: state.teamProjects }));
     button.dataset.state = 'ready';
@@ -1216,7 +1224,7 @@ async function shareTeamProject(project) {
       const graph = await api(architectureBasePath(project.projectId));
       payload.architecture = graph.architecture || graph.data || graph;
     }
-    const key = `pm-team-revision:${new URL(config.url).origin}:${project.projectId}`;
+    const key = teamRevisionKey(config, project.projectId);
     const result = await teamApi(config, '/api/projects/share', { method: 'POST', body: JSON.stringify({ project: payload, expectedRevision: localStorage.getItem(key) || '' }) });
     localStorage.setItem(key, result.project.revision);
     await loadProjects();
@@ -1227,7 +1235,7 @@ async function shareTeamProject(project) {
       if (!await confirmAction(`共有先に @${error.latest.updatedBy || 'メンバー'} の更新があります。以下の差分を確認してください。\n\n${differences}\n\nこのPCの内容で共有先を更新しますか？キャンセルすると共有先を維持します。`, '差分を確認して更新')) return;
       try {
         const result = await teamApi(config, '/api/projects/share', { method: 'POST', body: JSON.stringify({ project: payload, expectedRevision: error.latest.revision }) });
-        localStorage.setItem(`pm-team-revision:${new URL(config.url).origin}:${project.projectId}`, result.project.revision);
+        localStorage.setItem(teamRevisionKey(config, project.projectId), result.project.revision);
         showMessage('確認した内容でチームを更新しました。');
       } catch (retryError) { showMessage(retryError.message, true); }
     } else showMessage(error.message, true);
@@ -1237,8 +1245,9 @@ document.querySelector('#team-settings-button').addEventListener('click', openTe
 document.querySelector('#team-save').addEventListener('click', async () => {
   const config = { url: document.querySelector('#team-url').value.trim(), token: document.querySelector('#team-token').value.trim() };
   try {
-    await teamApi(config, '/api/projects');
+    const data = await teamApi(config, '/api/projects');
     config.url = new URL(config.url).origin;
+    config.team = data.team;
     localStorage.setItem('pm-team', JSON.stringify(config));
     document.querySelector('#team-dialog').close();
     await loadProjects();

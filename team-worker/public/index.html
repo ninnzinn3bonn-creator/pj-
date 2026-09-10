@@ -21,6 +21,11 @@
     <section id="app-view" hidden>
       <div class="section-heading"><div><p class="eyebrow">CONNECTED</p><h2>ローカル台帳をチームへ接続</h2></div></div>
       <div class="portal-card">
+        <h2>利用するチーム</h2>
+        <label><span>現在のチーム</span><select id="team-select"></select></label>
+        <form id="team-form"><label><span>新しいチーム名</span><input id="team-name" maxlength="80" required></label><button class="primary">チームを作成</button></form>
+      </div>
+      <div class="portal-card">
         <p>ローカル台帳の「台帳ツール → チーム連携設定」へ、以下の接続情報を登録してください。接続後は個人用と共有プロジェクトが同じ一覧に表示されます。</p>
         <button id="connection-button" class="primary">接続情報を表示</button>
       </div>
@@ -37,8 +42,9 @@
     <div class="dialog-heading"><h2>ローカル台帳との接続情報</h2><button data-close>×</button></div>
     <p>接続トークンはパスワードと同様に扱い、チームメンバー以外へ送らないでください。</p>
     <label><span>チームAPI URL</span><input id="team-url" readonly></label>
+    <label><span>チームID</span><input id="connection-team" readonly></label>
     <label><span>接続トークン</span><textarea id="connection-token" rows="6" readonly></textarea></label>
-    <div class="dialog-actions"><button id="copy-connection" class="primary">URLとトークンをコピー</button></div>
+    <div class="dialog-actions"><button id="copy-connection" class="primary">接続情報をコピー</button></div>
   </dialog>
   <script src="/app.js" defer></script>
 </body>

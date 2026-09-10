@@ -2,8 +2,8 @@ function databaseError(message, status = 500, code = '') {
   return Object.assign(new Error(message), { status, code });
 }
 
-function teamSlug(env) {
-  const slug = String(env.TEAM_SLUG || '').trim();
+function teamSlug(env, user = {}) {
+  const slug = String(user.teamSlug || env.TEAM_SLUG || '').trim();
   if (!/^[a-z0-9][a-z0-9-]*$/.test(slug)) throw databaseError('TEAM_SLUGが正しくありません。');
   return slug;
 }
@@ -23,29 +23,60 @@ function projectFromRow(row) {
 }
 
 export function createD1Store() {
-  async function ensureAccess(env, user, requiredRole = '') {
-    const slug = teamSlug(env);
+  async function bootstrapUser(env, user) {
     const email = String(user?.email || '').trim().toLowerCase();
     if (!email || !email.includes('@')) throw databaseError('メールアドレスを確認できません。', 401);
-    const now = new Date().toISOString();
     const adminEmail = String(env.TEAM_ADMIN_EMAIL || '').trim().toLowerCase();
+    const now = new Date().toISOString();
     if (email === adminEmail) {
+      const slug = String(env.TEAM_SLUG || 'my-team');
       await env.DB.batch([
-        env.DB.prepare('INSERT OR IGNORE INTO teams (team_slug, name, created_at) VALUES (?1, ?2, ?3)').bind(slug, env.TEAM_NAME || slug, now),
-        env.DB.prepare(`INSERT INTO access_members (team_slug, email, role, active, created_at, updated_at)
-          VALUES (?1, ?2, 'admin', 1, ?3, ?3)
-          ON CONFLICT(team_slug, email) DO UPDATE SET role = 'admin', active = 1, updated_at = excluded.updated_at`)
-          .bind(slug, email, now)
+        env.DB.prepare('INSERT OR IGNORE INTO teams (team_slug, name, owner_email, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?4)').bind(slug, env.TEAM_NAME || slug, email, now),
+        env.DB.prepare(`INSERT INTO access_members (team_slug, email, role, active, created_at, updated_at) VALUES (?1, ?2, 'admin', 1, ?3, ?3)
+          ON CONFLICT(team_slug, email) DO UPDATE SET role = 'admin', active = 1, updated_at = excluded.updated_at`).bind(slug, email, now)
       ]);
     }
+    let membership = await env.DB.prepare(`SELECT m.team_slug AS teamSlug FROM access_members m
+      WHERE m.email = ?1 AND m.active = 1 ORDER BY CASE WHEN m.role = 'admin' THEN 0 ELSE 1 END, m.created_at LIMIT 1`).bind(email).first();
+    if (!membership) {
+      const slug = `team-${crypto.randomUUID().slice(0, 12)}`;
+      await createTeam(env, user, `${email.split('@')[0]}のチーム`, slug);
+      membership = { teamSlug: slug };
+    }
+    return { ...user, email, teamSlug: membership.teamSlug };
+  }
+
+  async function listTeams(env, user) {
+    const result = await env.DB.prepare(`SELECT t.team_slug AS teamSlug, t.name, m.role
+      FROM access_members m JOIN teams t ON t.team_slug = m.team_slug
+      WHERE m.email = ?1 AND m.active = 1 ORDER BY t.name COLLATE NOCASE`).bind(user.email).all();
+    return result.results;
+  }
+
+  async function createTeam(env, user, nameInput, requestedSlug = '') {
+    const name = String(nameInput || '').trim();
+    if (!name || name.length > 80) throw databaseError('チーム名は1〜80文字で入力してください。', 400);
+    const slug = requestedSlug || `team-${crypto.randomUUID().slice(0, 12)}`;
+    const now = new Date().toISOString();
+    await env.DB.batch([
+      env.DB.prepare('INSERT INTO teams (team_slug, name, owner_email, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?4)').bind(slug, name, user.email, now),
+      env.DB.prepare(`INSERT INTO access_members (team_slug, email, role, active, created_at, updated_at) VALUES (?1, ?2, 'admin', 1, ?3, ?3)`).bind(slug, user.email, now)
+    ]);
+    return { teamSlug: slug, name, role: 'admin' };
+  }
+
+  async function ensureAccess(env, user, requiredRole = '') {
+    const slug = teamSlug(env, user);
+    const email = String(user?.email || '').trim().toLowerCase();
+    if (!email || !email.includes('@')) throw databaseError('メールアドレスを確認できません。', 401);
     const member = await env.DB.prepare('SELECT role, active FROM access_members WHERE team_slug = ?1 AND email = ?2').bind(slug, email).first();
     if (!member || member.active !== 1) throw databaseError('このチームのメンバーではありません。', 403, 'TEAM_ACCESS_DENIED');
     if (requiredRole === 'admin' && member.role !== 'admin') throw databaseError('チーム管理者の権限が必要です。', 403, 'TEAM_ADMIN_REQUIRED');
     return member;
   }
 
-  async function load(env) {
-    const slug = teamSlug(env);
+  async function load(env, user = {}) {
+    const slug = teamSlug(env, user);
     const result = await env.DB.prepare(`SELECT p.*, a.document AS architecture_document, a.updated_at AS architecture_updated_at
       FROM projects p
       LEFT JOIN project_architectures a ON a.team_slug = p.team_slug AND a.project_id = p.project_id
@@ -68,12 +99,12 @@ export function createD1Store() {
   }
 
   async function updateProject(env, actor, incoming, expectedRevision) {
-    const slug = teamSlug(env);
+    const slug = teamSlug(env, actor);
     const actorName = actor.email || actor.login;
     const existingRow = await env.DB.prepare('SELECT * FROM projects WHERE team_slug = ?1 AND project_id = ?2').bind(slug, incoming.projectId).first();
     const existing = existingRow ? projectFromRow(existingRow) : null;
     const expected = String(expectedRevision || '');
-    if (existing && (!expected || expected !== existing.revision)) throw Object.assign(databaseError('共有先に新しい更新があります。最新内容を確認してください。', 409, 'PROJECT_CONFLICT'), { latest: (await load(env)).data.projects.find(item => item.projectId === incoming.projectId) });
+    if (existing && (!expected || expected !== existing.revision)) throw Object.assign(databaseError('共有先に新しい更新があります。最新内容を確認してください。', 409, 'PROJECT_CONFLICT'), { latest: (await load(env, actor)).data.projects.find(item => item.projectId === incoming.projectId) });
     if (!existing && expected) throw databaseError('共有プロジェクトが見つかりません。', 409, 'PROJECT_MISSING');
 
     const now = new Date().toISOString();
@@ -95,11 +126,11 @@ export function createD1Store() {
           VALUES (?1, ?2, ?3, 1, ?4, ?5)`).bind(slug, incoming.projectId, JSON.stringify(architecture), now, actorName));
         await env.DB.batch(statements);
       } catch (error) {
-        const latest = (await load(env)).data.projects.find(item => item.projectId === incoming.projectId);
+        const latest = (await load(env, actor)).data.projects.find(item => item.projectId === incoming.projectId);
         if (latest) throw Object.assign(databaseError('別のメンバーが先に登録しました。', 409, 'PROJECT_CONFLICT'), { latest });
         throw error;
       }
-      return { project: (await load(env)).data.projects.find(item => item.projectId === incoming.projectId), created: true };
+      return { project: (await load(env, actor)).data.projects.find(item => item.projectId === incoming.projectId), created: true };
     }
 
     const nextRevision = Number(existing.revision) + 1;
@@ -116,20 +147,20 @@ export function createD1Store() {
       .bind(slug, incoming.projectId, JSON.stringify(architecture), now, actorName, nextRevision));
     const results = await env.DB.batch(statements);
     if (!results[0].meta?.changes) {
-      const latest = (await load(env)).data.projects.find(item => item.projectId === incoming.projectId);
+      const latest = (await load(env, actor)).data.projects.find(item => item.projectId === incoming.projectId);
       throw Object.assign(databaseError('共有先に新しい更新があります。最新内容を確認してください。', 409, 'PROJECT_CONFLICT'), { latest });
     }
-    return { project: (await load(env)).data.projects.find(item => item.projectId === incoming.projectId), created: false };
+    return { project: (await load(env, actor)).data.projects.find(item => item.projectId === incoming.projectId), created: false };
   }
 
-  async function listMembers(env) {
-    const slug = teamSlug(env);
+  async function listMembers(env, actor) {
+    const slug = teamSlug(env, actor);
     const result = await env.DB.prepare('SELECT id, email, role, active, updated_at AS updatedAt FROM access_members WHERE team_slug = ?1 ORDER BY role, email COLLATE NOCASE').bind(slug).all();
     return result.results;
   }
 
-  async function addMember(env, emailInput, role = 'member') {
-    const slug = teamSlug(env);
+  async function addMember(env, actor, emailInput, role = 'member') {
+    const slug = teamSlug(env, actor);
     const email = String(emailInput || '').trim().toLowerCase();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw databaseError('メールアドレスが正しくありません。', 400);
     const now = new Date().toISOString();
@@ -140,12 +171,12 @@ export function createD1Store() {
     return { email };
   }
 
-  async function removeMember(env, memberId) {
-    const slug = teamSlug(env);
+  async function removeMember(env, actor, memberId) {
+    const slug = teamSlug(env, actor);
     const member = await env.DB.prepare('SELECT email FROM access_members WHERE team_slug = ?1 AND id = ?2').bind(slug, Number(memberId)).first();
     if (member?.email?.toLowerCase() === String(env.TEAM_ADMIN_EMAIL || '').toLowerCase()) throw databaseError('最初の管理者は削除できません。', 400);
     await env.DB.prepare('UPDATE access_members SET active = 0, updated_at = ?1 WHERE team_slug = ?2 AND id = ?3').bind(new Date().toISOString(), slug, Number(memberId)).run();
   }
 
-  return { ensureAccess, load, updateProject, listMembers, addMember, removeMember };
+  return { bootstrapUser, listTeams, createTeam, ensureAccess, load, updateProject, listMembers, addMember, removeMember };
 }

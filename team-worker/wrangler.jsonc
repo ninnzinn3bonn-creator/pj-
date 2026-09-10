@@ -23,8 +23,8 @@
     "TEAM_SLUG": "my-team",
     "TEAM_NAME": "開発チーム",
     "TEAM_ADMIN_EMAIL": "ninnzinn.3bonn@gmail.com",
-    "ACCESS_TEAM_DOMAIN": "",
-    "ACCESS_AUD": "",
+    "ACCESS_TEAM_DOMAIN": "falling-dawn-5bd5.cloudflareaccess.com",
+    "ACCESS_AUD": "d5cb9a58ddb2de96a2efd5b79419e9c8916d4d5532357d63f2bdb2144cfd614d",
     "ALLOWED_LOCAL_ORIGINS": "http://127.0.0.1:4170,http://localhost:4170"
   },
   "observability": {

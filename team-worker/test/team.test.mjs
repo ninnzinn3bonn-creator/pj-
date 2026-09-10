@@ -137,3 +137,23 @@ test('D1-style store rejects a removed member before reading shared data', async
   assert.equal(response.status, 403);
   assert.equal((await response.json()).code, 'TEAM_ACCESS_DENIED');
 });
+
+test('authenticated users can create and switch teams while tokens stay team-scoped', async () => {
+  const calls = [];
+  const store = {
+    async ensureAccess(_env, user) { calls.push(['access', user.teamSlug]); },
+    async listTeams() { return [{ teamSlug: 'team-one', name: 'One', role: 'admin' }]; },
+    async createTeam(_env, user, name) { calls.push(['create', user.email, name]); return { teamSlug: 'team-two', name, role: 'admin' }; }
+  };
+  const app = createApp({ store });
+  const session = await seal({ user: { email: 'alice@example.com', teamSlug: 'team-one' }, expiresAt: Date.now() + 60000 }, env.SESSION_SECRET);
+  const headers = { Authorization: `Bearer ${session}`, 'Content-Type': 'application/json' };
+  const created = await app(new Request('https://team.test/api/teams', { method: 'POST', headers, body: JSON.stringify({ name: 'Two' }) }), { ...env, DB: {} });
+  assert.equal(created.status, 201);
+  assert.equal((await created.json()).team.teamSlug, 'team-two');
+  const switched = await app(new Request('https://team.test/api/session/team', { method: 'POST', headers, body: JSON.stringify({ teamSlug: 'team-two' }) }), { ...env, DB: {} });
+  assert.equal(switched.status, 200);
+  const switchedBody = await switched.json();
+  assert.equal((await unseal(switchedBody.token, env.SESSION_SECRET)).user.teamSlug, 'team-two');
+  assert.deepEqual(calls.find(call => call[0] === 'create'), ['create', 'alice@example.com', 'Two']);
+});

@@ -43,6 +43,21 @@ test('concurrent creates of different projects both survive', async () => {
   assert.deepEqual(results.map(r => r.status), [201, 201]);
   assert.equal((await f.store.load()).data.projects.length, 2);
 });
+test('shared project can be removed only with its current revision', async () => {
+  const f = await fixture();
+  const created = await (await f.call({ project })).json();
+  const headers = { Authorization: `Bearer ${f.token}`, 'Content-Type': 'application/json' };
+  const stale = await f.app(new Request('https://team.test/api/projects/demo', {
+    method: 'DELETE', headers, body: JSON.stringify({ expectedRevision: 'stale' })
+  }), env);
+  assert.equal(stale.status, 409);
+  assert.equal((await f.store.load()).data.projects.length, 1);
+  const removed = await f.app(new Request('https://team.test/api/projects/demo', {
+    method: 'DELETE', headers, body: JSON.stringify({ expectedRevision: created.project.revision })
+  }), env);
+  assert.equal(removed.status, 200);
+  assert.equal((await f.store.load()).data.projects.length, 0);
+});
 test('unauthenticated and invalid-origin writes are denied', async () => {
   const f = await fixture();
   assert.equal((await f.app(new Request('https://team.test/api/projects'), env)).status, 401);

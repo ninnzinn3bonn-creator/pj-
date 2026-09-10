@@ -153,6 +153,17 @@ export function createD1Store() {
     return { project: (await load(env, actor)).data.projects.find(item => item.projectId === incoming.projectId), created: false };
   }
 
+  async function deleteProject(env, actor, projectId, expectedRevision) {
+    const slug = teamSlug(env, actor);
+    const result = await env.DB.prepare(`DELETE FROM projects
+      WHERE team_slug = ?1 AND project_id = ?2 AND revision = ?3`)
+      .bind(slug, projectId, Number(expectedRevision)).run();
+    if (result.meta?.changes) return { removed: true, projectId };
+    const latest = (await load(env, actor)).data.projects.find(item => item.projectId === projectId);
+    if (!latest) throw databaseError('共有プロジェクトが見つかりません。', 404, 'PROJECT_MISSING');
+    throw Object.assign(databaseError('共有先に新しい更新があります。最新内容を確認してください。', 409, 'PROJECT_CONFLICT'), { latest });
+  }
+
   async function listMembers(env, actor) {
     const slug = teamSlug(env, actor);
     const result = await env.DB.prepare('SELECT id, email, role, active, updated_at AS updatedAt FROM access_members WHERE team_slug = ?1 ORDER BY role, email COLLATE NOCASE').bind(slug).all();
@@ -178,5 +189,5 @@ export function createD1Store() {
     await env.DB.prepare('UPDATE access_members SET active = 0, updated_at = ?1 WHERE team_slug = ?2 AND id = ?3').bind(new Date().toISOString(), slug, Number(memberId)).run();
   }
 
-  return { bootstrapUser, listTeams, createTeam, ensureAccess, load, updateProject, listMembers, addMember, removeMember };
+  return { bootstrapUser, listTeams, createTeam, ensureAccess, load, updateProject, deleteProject, listMembers, addMember, removeMember };
 }

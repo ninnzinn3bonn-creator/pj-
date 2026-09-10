@@ -114,6 +114,29 @@ async function updateProjectStore(store, env, credential, actor, body, projectId
   throw Object.assign(new Error('共有データを更新できません。'), { status: 409 });
 }
 
+async function removeProjectStore(store, env, credential, actor, projectId, expectedRevision) {
+  if (!/^[A-Za-z0-9][A-Za-z0-9-]*$/.test(projectId || '')) throw Object.assign(new Error('projectIdが正しくありません。'), { status: 400 });
+  if (!String(expectedRevision || '')) throw Object.assign(new Error('共有解除には最新revisionが必要です。'), { status: 400 });
+  if (store.deleteProject) return store.deleteProject(env, actor, projectId, expectedRevision);
+  const actorLogin = actor.email || actor.login || actor;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const loaded = await store.load(env, credential);
+    const existing = loaded.data.projects.find(item => item.projectId === projectId);
+    if (!existing) throw Object.assign(new Error('共有プロジェクトが見つかりません。'), { status: 404, code: 'PROJECT_MISSING' });
+    if (existing.revision !== String(expectedRevision)) {
+      throw Object.assign(new Error('共有先に新しい更新があります。最新内容を確認してください。'), { status: 409, code: 'PROJECT_CONFLICT', latest: existing });
+    }
+    const next = { ...loaded.data, updatedAt: new Date().toISOString(), projects: loaded.data.projects.filter(item => item.projectId !== projectId) };
+    try {
+      await store.save(env, credential, loaded, next, actorLogin);
+      return { removed: true, projectId };
+    } catch (error) {
+      if (error.status !== 409 || attempt === 2) throw error;
+    }
+  }
+  throw Object.assign(new Error('共有を解除できません。'), { status: 409 });
+}
+
 async function accessUser(request, env) {
   const assertion = request.headers.get('Cf-Access-Jwt-Assertion');
   const teamDomain = String(env.ACCESS_TEAM_DOMAIN || '').replace(/^https?:\/\//, '').replace(/\/$/, '');
@@ -212,6 +235,11 @@ export function createApp({ fetchImpl = fetch, store = null, verifyAccess = acce
           return json({ removed: true }, 200, cors);
         }
         const match = url.pathname.match(/^\/api\/projects\/([^/]+)$/);
+        if (match && request.method === 'DELETE') {
+          const input = await bodyJson(request);
+          const result = await removeProjectStore(activeStore, env, credential, session.user, decodeURIComponent(match[1]), input.expectedRevision);
+          return json(result, 200, cors);
+        }
         if (match && request.method === 'PUT') {
           const result = await updateProjectStore(activeStore, env, credential, session.user, await bodyJson(request), decodeURIComponent(match[1]));
           return json(result, 200, cors);

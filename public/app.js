@@ -474,6 +474,7 @@ function renderDetail(project) {
             ${project.adminUrl ? `<a class="button-link" href="${escapeHtml(project.adminUrl)}" target="_blank" rel="noopener noreferrer">管理者サイトを開く</a>` : ''}
             ${project.repositoryUrl ? `<a class="button-link" href="${escapeHtml(project.repositoryUrl)}" target="_blank" rel="noopener noreferrer">リポジトリを開く</a>` : ''}
             <button type="button" data-detail-action="copy-update">更新用プロンプトをコピー</button>
+            ${project._team ? '<button type="button" data-detail-action="unshare" class="danger-text">チーム共有を解除</button>' : ''}
             ${project._local ? '<button type="button" data-detail-action="delete" class="danger-text">ローカルから削除</button>' : ''}
           </div>
         </details>
@@ -1241,6 +1242,29 @@ async function shareTeamProject(project) {
     } else showMessage(error.message, true);
   }
 }
+
+async function unshareTeamProject(project) {
+  if (!project._team) return;
+  const config = teamConfig();
+  if (!config.url || !config.token) return openTeamSettings();
+  const localNote = project._local
+    ? 'このPCのローカルプロジェクトと概念図は残ります。'
+    : 'このPCにローカル版がないため、解除後は一覧から消えます。';
+  if (!await confirmAction(`「${project.name}」をチーム共有から解除します。チーム側の進捗・履歴・共有概念図が削除され、全メンバーの共有一覧から消えます。${localNote}`, '共有を解除')) return;
+  try {
+    await teamApi(config, `/api/projects/${encodeURIComponent(project.projectId)}`, {
+      method: 'DELETE', body: JSON.stringify({ expectedRevision: project.revision })
+    });
+    localStorage.removeItem(teamRevisionKey(config, project.projectId));
+    await loadProjects();
+    const remaining = state.projects.find(item => item.projectId === project.projectId);
+    location.hash = remaining ? `#/project/${encodeURIComponent(project.projectId)}` : '';
+    showMessage('チーム共有を解除しました。ローカルデータは変更していません。');
+  } catch (error) {
+    if (error.latest) await loadProjects();
+    showMessage(error.message, true);
+  }
+}
 document.querySelector('#team-settings-button').addEventListener('click', openTeamSettings);
 document.querySelector('#team-save').addEventListener('click', async () => {
   const config = { url: document.querySelector('#team-url').value.trim(), token: document.querySelector('#team-token').value.trim() };
@@ -1360,6 +1384,7 @@ elements.detailContent.addEventListener('click', (event) => {
   if (!project) return;
   if (action === 'edit') openManual(project);
   if (action === 'share') void shareTeamProject(project);
+  if (action === 'unshare') void unshareTeamProject(project);
   if (action === 'ai-update') openAiImport('update', project.projectId);
   if (action === 'copy-update') copyText(updatePrompt(project));
   if (action === 'architecture') location.hash = `#/project/${encodeURIComponent(project.projectId)}/architecture`;

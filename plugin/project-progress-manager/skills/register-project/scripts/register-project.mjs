@@ -63,6 +63,7 @@ const REQUIRED_FIELDS = [
   'admin_url',
   'repository_url',
   'development_url',
+  'project_path',
   'status',
   'progress',
   'owner',
@@ -300,6 +301,7 @@ function validatePayload(payload) {
   validateHttpUrl(payload.admin_url, 'admin_url', errors);
   validateHttpUrl(payload.repository_url, 'repository_url', errors);
   validateHttpUrl(payload.development_url, 'development_url', errors);
+  validateString(payload.project_path, 'project_path', errors, { required: true });
   if (!STATUSES.has(payload.status)) errors.push('status が許可されていません。');
   if (!Number.isInteger(payload.progress) || payload.progress < 0 || payload.progress > 100) {
     errors.push('progress は 0 から 100 の整数で指定してください。');
@@ -547,6 +549,7 @@ async function run() {
   const mappingPath = rootInfo.mappingPath;
   const inputText = await readInput(options.filename);
   const payload = normalizePayload(extractJson(inputText));
+  payload.project_path = rootInfo.root;
   validatePayload(payload);
   const canonicalText = JSON.stringify(payload);
   const manager = await resolveManagerUrl(options.managerUrl);

@@ -267,7 +267,7 @@ function mergeProjects() {
       const result = TeamSync.classify(local, shared, loadTeamSyncMeta(config, local.projectId));
       if (result.state === 'synced') saveTeamSyncMeta(config, local, shared);
       const selected = result.state === 'team-ahead' ? shared : local;
-      return { ...selected, _localVersion: local, _teamVersion: shared, _team: true, _local: true, _syncState: result.state };
+      return { ...selected, projectPath: local.projectPath || '', _localVersion: local, _teamVersion: shared, _team: true, _local: true, _syncState: result.state };
     }
     return shared
       ? { ...shared, lastUpdateSource: 'team', _team: true, _local: true, _syncState: 'synced' }
@@ -536,6 +536,7 @@ function renderDetail(project) {
             <tr><th scope="row">管理者サイトURL</th><td>${detailLink('管理者サイトURL', project.adminUrl)}</td></tr>
             <tr><th scope="row">リポジトリURL</th><td>${detailLink('リポジトリURL', project.repositoryUrl)}</td></tr>
             <tr><th scope="row">開発環境URL</th><td>${detailLink('開発環境URL', project.developmentUrl)}</td></tr>
+            <tr><th scope="row">作業ディレクトリ</th><td>${project.projectPath ? `<code>${escapeHtml(project.projectPath)}</code>` : '<span class="none">未登録</span>'}</td></tr>
             <tr><th scope="row">管理状態</th><td><span class="status-text" style="${statusStyle(project.status)}">${escapeHtml(STATUS_LABELS[project.status] || project.status)}</span></td></tr>
             <tr><th scope="row">進捗</th><td><div class="progress-line detail-progress" style="${statusStyle(project.status)}"><span class="progress-value">${project.progress}%</span><div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${project.progress}"><div class="progress-fill" style="--progress:${project.progress}%"></div></div></div></td></tr>
             <tr><th scope="row">担当者</th><td>${escapeHtml(project.owner || '—')}</td></tr>
@@ -887,6 +888,7 @@ function openManual(project = null) {
     form.adminUrl.value = project.adminUrl || '';
     form.repositoryUrl.value = project.repositoryUrl;
     form.developmentUrl.value = project.developmentUrl;
+    form.projectPath.value = project.projectPath || '';
     form.status.value = project.status;
     form.progress.value = project.progress;
     form.tags.value = project.tags.join(', ');
@@ -910,6 +912,7 @@ function manualPayload() {
     adminUrl: form.adminUrl.value.trim(),
     repositoryUrl: form.repositoryUrl.value.trim(),
     developmentUrl: form.developmentUrl.value.trim(),
+    projectPath: form.projectPath.value.trim(),
     status: form.status.value,
     progress: Number(form.progress.value),
     owner: form.owner.value.trim(),
@@ -1090,6 +1093,7 @@ JSONの前後に説明を書かず、コードブロックだけを返してく�
   "admin_url": "",
   "repository_url": "",
   "development_url": "",
+  "project_path": "作業対象ディレクトリの絶対パス",
   "status": "idea | planning | development | testing | release_ready | published | update_pending | blocked | paused | archived",
   "progress": 0,
   "owner": "",
@@ -1112,6 +1116,7 @@ function updatePrompt(project) {
     admin_url: project.adminUrl || '',
     repository_url: project.repositoryUrl,
     development_url: project.developmentUrl,
+    project_path: project.projectPath || '',
     status: project.status,
     progress: project.progress,
     owner: project.owner,

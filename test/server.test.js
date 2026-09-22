@@ -277,6 +277,7 @@ test('AI形式を確認してから新規登録する', async () => {
     admin_url: 'http://localhost:6000/admin',
     repository_url: '',
     development_url: '',
+    project_path: 'C:\\work\\ai-created',
     status: 'planning',
     progress: 20,
     owner: '',
@@ -293,6 +294,7 @@ test('AI形式を確認してから新規登録する', async () => {
   assert.equal(preview.data.mode, 'create');
   assert.equal(preview.data.project.projectId, 'ai-created');
   assert.equal(preview.data.project.adminUrl, 'http://localhost:6000/admin');
+  assert.equal(preview.data.project.projectPath, 'C:\\work\\ai-created');
 
   const commit = await request('/api/import/commit', { method: 'POST', body: JSON.stringify({ text }) });
   assert.equal(commit.response.status, 201);
@@ -301,12 +303,14 @@ test('AI形式を確認してから新規登録する', async () => {
 
   const legacyPayload = { ...payload, project_id: 'legacy-json-preview' };
   delete legacyPayload.admin_url;
+  delete legacyPayload.project_path;
   const legacyPreview = await request('/api/import/preview', {
     method: 'POST',
     body: JSON.stringify({ text: JSON.stringify(legacyPayload) })
   });
   assert.equal(legacyPreview.response.status, 200);
   assert.equal(legacyPreview.data.project.adminUrl, '');
+  assert.equal(legacyPreview.data.project.projectPath, '');
 
   const repositoryRacePayloads = [
     { ...payload, project_id: 'repository-race-a', name: 'Repository race A', repository_url: 'https://github.com/example/repository-race.git' },

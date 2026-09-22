@@ -276,12 +276,14 @@ test('スキル付属スクリプトがプレビュー後にcodex-skillとして
   assert.equal(preview.code, 0, preview.stderr);
   assert.equal(JSON.parse(preview.stdout).project.progress, 64);
   assert.equal(JSON.parse(preview.stdout).project.summary, 'スキル統合テスト済み');
+  assert.equal(JSON.parse(preview.stdout).project.projectPath, temporaryDirectory);
 
   const applied = await runScriptFile(SKILL_SCRIPT, '--apply', filename);
   assert.equal(applied.code, 0, applied.stderr);
   const result = JSON.parse(applied.stdout);
   assert.equal(result.applied, true);
   assert.equal(result.project.lastUpdateSource, 'codex-skill');
+  assert.equal(result.project.projectPath, temporaryDirectory);
   assert.equal(result.project.history[0].source, 'codex-skill');
   assert.match(result.requestId, /^codex-/);
 
@@ -499,6 +501,7 @@ test('新規登録スキルのapplyはcodex-skill由来で登録し正しい関�
   assert.equal(stored.response.status, 200);
   assert.equal(stored.data.createdSource, 'codex-skill');
   assert.equal(stored.data.lastUpdateSource, 'codex-skill');
+  assert.equal(stored.data.projectPath, await fs.realpath(workspace));
   const mapping = JSON.parse(await fs.readFile(path.join(workspace, '.project-manager.json'), 'utf8'));
   assert.deepEqual(mapping, {
     schema_version: 1,

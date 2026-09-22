@@ -35,6 +35,8 @@ The runner verifies both `/api/health` and `/api/meta`. Automatic probing must f
 5. Derive the project ID from stable repository evidence when possible: prefer the repository name, then a package or manifest name, then an ASCII-safe directory name. Use only letters, digits, and hyphens. Do not silently change it after preview.
 6. Assign integer progress from 0 to 100 based on evidence rather than aspiration.
 
+Set `project_path` to the canonical Project Root selected with `--root`. The bundled runner replaces the submitted value with the verified real path, so never infer a different directory from repository URLs or README text.
+
 Do not read or include secrets, credentials, private environment values, generated dependencies, or large build output.
 
 ## Keep operations bounded
@@ -58,6 +60,7 @@ Produce every field below and keep `mode` as `create`:
   "admin_url": "",
   "repository_url": "",
   "development_url": "",
+  "project_path": "Project Rootの絶対パス",
   "status": "development",
   "progress": 0,
   "owner": "",

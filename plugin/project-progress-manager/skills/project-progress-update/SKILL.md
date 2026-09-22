@@ -34,6 +34,8 @@ Keep `mode` as `update` and require the JSON `project_id` to match the mapping.
 4. Identify implemented behavior, current work, next work, blockers, and commit-ready changes from observed evidence.
 5. Assign integer progress from 0 to 100 based on that evidence. Do not copy the previous number without reevaluation.
 
+Set `project_path` to the Project Root containing the resolved `.project-manager.json`. The bundled runner replaces the submitted value with that mapping directory before preview and apply; do not use a parent workspace or infer a path from repository metadata.
+
 ## Keep operations bounded
 
 - Read repository evidence only from the Project Root containing the resolved mapping. Send manager data only to a loopback URL (`localhost`, `127.0.0.1`, or `::1`).
@@ -54,6 +56,7 @@ Produce every required field:
   "admin_url": "",
   "repository_url": "",
   "development_url": "",
+  "project_path": "Project Rootの絶対パス",
   "status": "development",
   "progress": 0,
   "owner": "",

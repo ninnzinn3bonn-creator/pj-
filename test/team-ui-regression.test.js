@@ -18,3 +18,10 @@ test('AI更新は競合状態を自動上書きせず概念図はローカル優
   assert.match(source, /if \(project\._local\) \{/);
   assert.match(source, /error\.status !== 404 \|\| !project\._teamVersion\?\.architecture/);
 });
+
+test('端末固有の作業ディレクトリは共有版で上書きされない', async () => {
+  const source = await readFile(join(__dirname, '..', 'public', 'app.js'), 'utf8');
+  assert.match(source, /projectPath: local\.projectPath \|\| ''/);
+  const payloadFunction = source.slice(source.indexOf('function teamProjectPayload'), source.indexOf('function teamRevision'));
+  assert.doesNotMatch(payloadFunction, /projectPath/);
+});

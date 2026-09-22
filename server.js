@@ -216,6 +216,7 @@ function validateProjectInput(input, { allowMissingId = false } = {}) {
   const adminUrl = cleanString(input.adminUrl);
   const repositoryUrl = cleanString(input.repositoryUrl);
   const developmentUrl = cleanString(input.developmentUrl);
+  const projectPath = cleanString(input.projectPath);
 
   if (!allowMissingId && !projectId) errors.push('プロジェクトIDは必須です。');
   if (projectId && !/^[a-zA-Z0-9][a-zA-Z0-9-]*$/.test(projectId)) {
@@ -230,6 +231,7 @@ function validateProjectInput(input, { allowMissingId = false } = {}) {
   validateUrl(adminUrl, '管理者サイトURL', errors);
   validateUrl(repositoryUrl, 'リポジトリURL', errors);
   validateUrl(developmentUrl, '開発環境URL', errors);
+  if (projectPath.length > 1024) errors.push('作業ディレクトリは1024文字以内で指定してください。');
 
   const tags = cleanStringArray(input.tags ?? [], 'タグ', errors);
   const currentTasks = cleanStringArray(input.currentTasks ?? [], '現在のタスク', errors);
@@ -245,6 +247,7 @@ function validateProjectInput(input, { allowMissingId = false } = {}) {
     adminUrl,
     repositoryUrl,
     developmentUrl,
+    projectPath,
     status,
     progress,
     owner: cleanString(input.owner),
@@ -287,6 +290,7 @@ function validateAiPayload(payload) {
     adminUrl: payload.admin_url,
     repositoryUrl: payload.repository_url,
     developmentUrl: payload.development_url,
+    projectPath: payload.project_path,
     status: payload.status,
     progress: payload.progress,
     owner: payload.owner,
@@ -451,6 +455,7 @@ function compareProjects(before, after) {
     ['adminUrl', '管理者サイトURL'],
     ['repositoryUrl', 'リポジトリURL'],
     ['developmentUrl', '開発環境URL'],
+    ['projectPath', '作業ディレクトリ'],
     ['owner', '担当者'],
     ['tags', 'タグ']
   ];
@@ -505,7 +510,7 @@ function architectureTemplate(project) {
     document: { id: `${project.projectId}-architecture`, title: `${project.name} architecture`, summary: '空の概念図テンプレート', generated_at: now },
     project: {
       project_id: project.projectId, name: project.name, summary: project.summary || '', version: '', analyzed_at: now,
-      source_root: '.', app_url: project.appUrl || '', admin_url: project.adminUrl || '', repository_url: project.repositoryUrl || '',
+      source_root: project.projectPath || '.', app_url: project.appUrl || '', admin_url: project.adminUrl || '', repository_url: project.repositoryUrl || '',
       development_url: project.developmentUrl || '', status: project.status || '', progress: Number.isInteger(project.progress) ? project.progress : 0,
       tags: Array.isArray(project.tags) ? project.tags : []
     },

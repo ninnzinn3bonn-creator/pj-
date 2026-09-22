@@ -123,12 +123,14 @@ async function main() {
   const payload = extractJson(text);
   const config = await findConfig(process.cwd());
   validateConfig(config);
+  payload.project_path = path.dirname(config.filename);
   validatePayload(payload, config);
   const managerUrl = normalizeLoopbackUrl(config.data.manager_url);
+  const canonicalText = JSON.stringify(payload);
 
   const previewResult = await requestJson(managerUrl, '/api/import/preview', {
     method: 'POST',
-    body: JSON.stringify({ text })
+    body: JSON.stringify({ text: canonicalText })
   });
   if (previewResult.data?.project?.projectId !== config.data.project_id) {
     throw new Error(`プレビュー対象が関連付けと一致しません。期待値: ${config.data.project_id}`);
@@ -151,10 +153,10 @@ async function main() {
   }
 
   const requestId = requestedId
-    || `codex-${crypto.createHash('sha256').update(text).digest('hex').slice(0, 32)}`;
+    || `codex-${crypto.createHash('sha256').update(canonicalText).digest('hex').slice(0, 32)}`;
   const commitResult = await requestJson(managerUrl, '/api/import/commit', {
     method: 'POST',
-    body: JSON.stringify({ text, source: 'codex-skill', requestId })
+    body: JSON.stringify({ text: canonicalText, source: 'codex-skill', requestId })
   });
   process.stdout.write(`${JSON.stringify({
     applied: true,

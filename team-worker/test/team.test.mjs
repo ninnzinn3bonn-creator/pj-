@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createApp } from '../src/index.mjs';
-import { seal, unseal } from '../src/crypto.mjs';
+import { seal, unseal, sealOpaque, unsealOpaque, randomToken, digestToken } from '../src/crypto.mjs';
 import { createGitHubStore } from '../src/github-store.mjs';
 import { run } from '../scripts/team-cli.mjs';
 import { mkdtemp, writeFile, rm } from 'node:fs/promises';
@@ -82,6 +82,29 @@ test('connection tokens do not extend source authentication expiry', async () =>
   const result = await response.json();
   assert.equal((await unseal(result.token, env.SESSION_SECRET)).expiresAt, source.expiresAt);
   await assert.rejects(unseal(await seal({ expiresAt: Date.now() - 1 }, env.SESSION_SECRET), env.SESSION_SECRET));
+});
+test('D1 connection token stays fixed until explicitly rotated', async () => {
+  let fixed = randomToken();
+  const store = {
+    async ensureAccess() {},
+    async issueConnectionToken(_env, _user, { rotate }) {
+      if (rotate) fixed = randomToken();
+      return { token: fixed, createdAt: '2026-09-25T00:00:00.000Z', rotated: rotate };
+    }
+  };
+  const app = createApp({ store });
+  const session = await seal({ user: { email: 'alice@example.com', teamSlug: 'test' }, expiresAt: Date.now() + 60000 }, env.SESSION_SECRET);
+  const headers = { Authorization: `Bearer ${session}`, 'Content-Type': 'application/json' };
+  const issue = body => app(new Request('https://team.test/api/connection-token', { method: 'POST', headers, body: JSON.stringify(body) }), { ...env, DB: {} });
+  const first = await (await issue({})).json();
+  const second = await (await issue({})).json();
+  assert.equal(first.token, second.token);
+  assert.equal(first.expiresAt, null);
+  const rotated = await (await issue({ rotate: true })).json();
+  assert.notEqual(rotated.token, first.token);
+  assert.match(rotated.token, /^pmt_/);
+  assert.equal((await digestToken(rotated.token)).length, 64);
+  assert.deepEqual(await unsealOpaque(await sealOpaque({ token: rotated.token }, env.SESSION_SECRET), env.SESSION_SECRET), { token: rotated.token });
 });
 test('missing private repository is access denial, not empty team', async () => {
   const store = createGitHubStore(async () => Response.json({ message: 'Not Found' }, { status: 404 }));

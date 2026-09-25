@@ -50,12 +50,23 @@ async function initialize() {
 
 $('#connection-button').addEventListener('click', async () => {
   try {
-    const data = await api('/api/connection-token', { method: 'POST' });
+    const data = await api('/api/connection-token', { method: 'POST', body: '{}' });
     $('#team-url').value = data.teamUrl;
     $('#connection-team').value = data.team;
     $('#connection-token').value = data.token;
     $('#connection-dialog').showModal();
   } catch (error) { message(error.message, true); }
+});
+
+$('#rotate-connection').addEventListener('click', async () => {
+  if (!confirm('固定接続トークンを再発行しますか？現在ローカル台帳に設定されている旧トークンは直ちに使えなくなります。')) return;
+  const button = $('#rotate-connection');
+  button.disabled = true;
+  try {
+    const data = await api('/api/connection-token', { method: 'POST', body: JSON.stringify({ rotate: true }) });
+    $('#connection-token').value = data.token;
+    message('固定接続トークンを再発行しました。各PCの接続設定を更新してください。');
+  } catch (error) { message(error.message, true); } finally { button.disabled = false; }
 });
 
 $('#team-select').addEventListener('change', async event => {

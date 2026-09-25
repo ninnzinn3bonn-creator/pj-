@@ -19,13 +19,13 @@ async function encryptionKey(secret) {
   return crypto.subtle.importKey('raw', digest, 'AES-GCM', false, ['encrypt', 'decrypt']);
 }
 
-export async function seal(value, secret) {
+export async function sealOpaque(value, secret) {
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, await encryptionKey(secret), encoder.encode(JSON.stringify(value)));
   return `${bytesToBase64Url(iv)}.${bytesToBase64Url(new Uint8Array(encrypted))}`;
 }
 
-export async function unseal(value, secret) {
+export async function unsealOpaque(value, secret) {
   const [ivText, payloadText] = String(value || '').split('.');
   if (!ivText || !payloadText) throw new Error('セッションが正しくありません。');
   const decrypted = await crypto.subtle.decrypt(
@@ -33,9 +33,26 @@ export async function unseal(value, secret) {
     await encryptionKey(secret),
     base64UrlToBytes(payloadText)
   );
-  const payload = JSON.parse(decoder.decode(decrypted));
+  return JSON.parse(decoder.decode(decrypted));
+}
+
+export async function seal(value, secret) {
+  return sealOpaque(value, secret);
+}
+
+export async function unseal(value, secret) {
+  const payload = await unsealOpaque(value, secret);
   if (!payload.expiresAt || Date.now() >= payload.expiresAt) throw new Error('セッションの有効期限が切れています。');
   return payload;
+}
+
+export async function digestToken(value) {
+  const digest = await crypto.subtle.digest('SHA-256', encoder.encode(String(value || '')));
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+export function randomToken() {
+  return `pmt_${bytesToBase64Url(crypto.getRandomValues(new Uint8Array(32)))}`;
 }
 
 export async function revisionFor(value) {

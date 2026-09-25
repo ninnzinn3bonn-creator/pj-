@@ -1,3 +1,5 @@
+import { digestToken, randomToken, sealOpaque, unsealOpaque } from './crypto.mjs';
+
 function databaseError(message, status = 500, code = '') {
   return Object.assign(new Error(message), { status, code });
 }
@@ -23,6 +25,34 @@ function projectFromRow(row) {
 }
 
 export function createD1Store() {
+  async function issueConnectionToken(env, actor, { rotate = false } = {}) {
+    const slug = teamSlug(env, actor);
+    const email = String(actor.email || '').trim().toLowerCase();
+    const existing = await env.DB.prepare('SELECT token_cipher, created_at AS createdAt FROM connection_tokens WHERE team_slug = ?1 AND email = ?2').bind(slug, email).first();
+    if (existing && !rotate) {
+      const stored = await unsealOpaque(existing.token_cipher, env.SESSION_SECRET);
+      return { token: stored.token, createdAt: existing.createdAt, rotated: false };
+    }
+    const token = randomToken();
+    const tokenHash = await digestToken(token);
+    const tokenCipher = await sealOpaque({ token }, env.SESSION_SECRET);
+    const now = new Date().toISOString();
+    await env.DB.prepare(`INSERT INTO connection_tokens (team_slug, email, token_hash, token_cipher, created_at, rotated_at)
+      VALUES (?1, ?2, ?3, ?4, ?5, NULL)
+      ON CONFLICT(team_slug, email) DO UPDATE SET token_hash = excluded.token_hash, token_cipher = excluded.token_cipher, rotated_at = excluded.created_at`)
+      .bind(slug, email, tokenHash, tokenCipher, now).run();
+    return { token, createdAt: existing?.createdAt || now, rotated: Boolean(existing) };
+  }
+
+  async function authenticateConnectionToken(env, token) {
+    const tokenHash = await digestToken(token);
+    const row = await env.DB.prepare(`SELECT t.id, t.team_slug AS teamSlug, t.email
+      FROM connection_tokens t JOIN access_members m ON m.team_slug = t.team_slug AND m.email = t.email
+      WHERE t.token_hash = ?1 AND m.active = 1`).bind(tokenHash).first();
+    if (!row) return null;
+    await env.DB.prepare('UPDATE connection_tokens SET last_used_at = ?1 WHERE id = ?2').bind(new Date().toISOString(), row.id).run();
+    return { user: { email: row.email, teamSlug: row.teamSlug }, persistent: true };
+  }
   async function bootstrapUser(env, user) {
     const email = String(user?.email || '').trim().toLowerCase();
     if (!email || !email.includes('@')) throw databaseError('メールアドレスを確認できません。', 401);
@@ -218,5 +248,5 @@ export function createD1Store() {
     await env.DB.prepare('UPDATE access_members SET active = 0, updated_at = ?1 WHERE team_slug = ?2 AND id = ?3').bind(new Date().toISOString(), slug, Number(memberId)).run();
   }
 
-  return { bootstrapUser, listTeams, createTeam, ensureAccess, load, updateProject, deleteProject, listMembers, addMember, removeMember };
+  return { bootstrapUser, listTeams, createTeam, ensureAccess, load, updateProject, deleteProject, listMembers, addMember, removeMember, issueConnectionToken, authenticateConnectionToken };
 }

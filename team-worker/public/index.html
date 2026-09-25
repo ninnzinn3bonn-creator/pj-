@@ -40,11 +40,11 @@
   <div id="message" class="message" hidden role="status" aria-live="polite"></div>
   <dialog id="connection-dialog">
     <div class="dialog-heading"><h2>ローカル台帳との接続情報</h2><button data-close>×</button></div>
-    <p>接続トークンはパスワードと同様に扱い、チームメンバー以外へ送らないでください。</p>
+    <p>接続トークンは再発行するまで有効です。パスワードと同様に扱い、チームメンバー以外へ送らないでください。</p>
     <label><span>チームAPI URL</span><input id="team-url" readonly></label>
     <label><span>チームID</span><input id="connection-team" readonly></label>
     <label><span>接続トークン</span><textarea id="connection-token" rows="6" readonly></textarea></label>
-    <div class="dialog-actions"><button id="copy-connection" class="primary">接続情報をコピー</button></div>
+    <div class="dialog-actions"><button id="rotate-connection" class="danger-text">トークンを再発行</button><button id="copy-connection" class="primary">接続情報をコピー</button></div>
   </dialog>
   <script src="/app.js" defer></script>
 </body>

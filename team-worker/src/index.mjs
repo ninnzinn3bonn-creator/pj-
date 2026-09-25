@@ -39,11 +39,12 @@ function corsHeaders(request, env) {
   } : {};
 }
 
-async function bodyJson(request) {
+async function bodyJson(request, { allowEmpty = false } = {}) {
   const size = Number(request.headers.get('Content-Length') || 0);
   if (size > MAX_BODY_BYTES) throw Object.assign(new Error('リクエストは2MB以下にしてください。'), { status: 413 });
   const text = await request.text();
   if (new TextEncoder().encode(text).length > MAX_BODY_BYTES) throw Object.assign(new Error('リクエストは2MB以下にしてください。'), { status: 413 });
+  if (allowEmpty && !text.trim()) return {};
   try { return JSON.parse(text); } catch { throw Object.assign(new Error('JSONの形式が正しくありません。'), { status: 400 }); }
 }
 
@@ -69,12 +70,18 @@ function validateProject(input) {
   };
 }
 
-async function sessionFromRequest(request, env) {
+async function sessionFromRequest(request, env, store) {
   const authorization = request.headers.get('Authorization') || '';
   const bearer = authorization.startsWith('Bearer ') ? authorization.slice(7).trim() : '';
   const encoded = bearer || cookieValue(request, SESSION_COOKIE);
   if (!encoded) throw Object.assign(new Error('メールでログインしてください。'), { status: 401 });
-  try { return await unseal(encoded, env.SESSION_SECRET); } catch { throw Object.assign(new Error('セッションが無効です。再度ログインしてください。'), { status: 401 }); }
+  try { return await unseal(encoded, env.SESSION_SECRET); } catch {
+    if (bearer?.startsWith('pmt_') && store?.authenticateConnectionToken) {
+      const persistent = await store.authenticateConnectionToken(env, bearer);
+      if (persistent) return persistent;
+    }
+    throw Object.assign(new Error('セッションが無効です。再度ログインしてください。'), { status: 401 });
+  }
 }
 
 async function updateProjectStore(store, env, credential, actor, body, projectId = '') {
@@ -185,8 +192,11 @@ export function createApp({ fetchImpl = fetch, store = null, verifyAccess = acce
       }
 
       if (url.pathname.startsWith('/api/')) {
-        const session = await sessionFromRequest(request, env);
+        const session = await sessionFromRequest(request, env, activeStore);
         if (activeStore.ensureAccess) await activeStore.ensureAccess(env, session.user);
+        if (session.persistent && !url.pathname.startsWith('/api/projects')) {
+          throw Object.assign(new Error('固定接続トークンはプロジェクト同期APIだけで利用できます。'), { status: 403 });
+        }
         const credential = env.DB ? session.user : session.accessToken;
         if (url.pathname === '/api/session' && request.method === 'GET') {
           const teams = activeStore.listTeams ? await activeStore.listTeams(env, session.user) : [];
@@ -207,8 +217,13 @@ export function createApp({ fetchImpl = fetch, store = null, verifyAccess = acce
           return json({ team: user.teamSlug, token }, 200, { ...cors, 'Set-Cookie': cookie(SESSION_COOKIE, token, Math.max(0, (session.expiresAt - Date.now()) / 1000)) });
         }
         if (url.pathname === '/api/connection-token' && request.method === 'POST') {
+          const input = await bodyJson(request, { allowEmpty: true });
+          if (activeStore.issueConnectionToken) {
+            const issued = await activeStore.issueConnectionToken(env, session.user, { rotate: input.rotate === true });
+            return json({ ...issued, teamUrl: url.origin, team: session.user.teamSlug, expiresAt: null, persistent: true }, 200, cors);
+          }
           const token = await seal(session, env.SESSION_SECRET);
-          return json({ token, teamUrl: url.origin, team: session.user.teamSlug, expiresAt: new Date(session.expiresAt).toISOString() }, 200, cors);
+          return json({ token, teamUrl: url.origin, team: session.user.teamSlug, expiresAt: new Date(session.expiresAt).toISOString(), persistent: false }, 200, cors);
         }
         if (url.pathname === '/api/projects' && request.method === 'GET') {
           const loaded = await activeStore.load(env, credential);

@@ -10,3 +10,11 @@ test('D1共有解除は論理削除・権限確認・最終管理者保護を行
   assert.match(source, /LAST_ADMIN/);
   assert.match(source, /deleted_at IS NULL/);
 });
+
+test('固定接続トークンは平文保存せず有効メンバーだけを認証する', async () => {
+  const source = await readFile(new URL('../src/d1-store.mjs', import.meta.url), 'utf8');
+  assert.match(source, /token_hash/);
+  assert.match(source, /token_cipher/);
+  assert.match(source, /m\.active = 1/);
+  assert.doesNotMatch(source, /VALUES[^\n]*\btoken\b/);
+});

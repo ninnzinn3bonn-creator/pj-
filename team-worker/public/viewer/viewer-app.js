@@ -51,10 +51,20 @@ function projectSearchText(project) {
 }
 
 function progressTone(progress) {
-  const value = Math.max(0, Math.min(100, Number(progress) || 0));
+  const value = progressValue(progress);
   if (value <= 33) return 'progress-low';
   if (value <= 66) return 'progress-middle';
   return 'progress-high';
+}
+
+function progressValue(progress) {
+  return Math.max(0, Math.min(100, Number(progress) || 0));
+}
+
+function applyProgressWidths(root = document) {
+  root.querySelectorAll('[data-progress]').forEach(fill => {
+    fill.style.width = `${progressValue(fill.dataset.progress)}%`;
+  });
 }
 
 function filteredProjects() {
@@ -72,11 +82,12 @@ function renderProjects() {
       <div class="card-heading"><div><h2>${escapeHtml(project.name)}</h2><p class="project-id">${escapeHtml(project.projectId)}</p></div><span class="status status-${escapeHtml(project.status)}">${escapeHtml(statusLabels[project.status] || project.status)}</span></div>
       <div class="card-progress ${progressTone(project.progress)}">
         <div class="progress-caption"><span>進捗</span><strong>${Number(project.progress) || 0}%</strong></div>
-        <div class="progress-track" role="progressbar" aria-label="${escapeHtml(project.name)}の進捗" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Number(project.progress) || 0}"><div class="progress-fill" style="width:${Number(project.progress) || 0}%"></div></div>
+        <div class="progress-track" role="progressbar" aria-label="${escapeHtml(project.name)}の進捗" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progressValue(project.progress)}"><div class="progress-fill" data-progress="${progressValue(project.progress)}"></div></div>
       </div>
       <div class="card-meta"><span>${escapeHtml(project.owner || '担当者未設定')}</span><span>${escapeHtml(formatDate(project.updatedAt))}</span></div>
       <p class="open-detail">詳細を見る <span aria-hidden="true">→</span></p>
     </article>`).join('');
+  applyProgressWidths($('#project-grid'));
 }
 
 function listBlock(title, items) {
@@ -98,7 +109,7 @@ function openDetail(project) {
       <tr><th scope="row">リポジトリURL</th><td>${detailLink(project.repositoryUrl)}</td></tr>
       <tr><th scope="row">開発環境URL</th><td>${detailLink(project.developmentUrl)}</td></tr>
       <tr><th scope="row">管理状態</th><td><span class="status status-${escapeHtml(project.status)}">${escapeHtml(statusLabels[project.status] || project.status)}</span></td></tr>
-      <tr><th scope="row">進捗</th><td><div class="detail-progress ${progressTone(project.progress)}"><div class="progress-caption"><strong>${Number(project.progress) || 0}%</strong></div><div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Number(project.progress) || 0}"><div class="progress-fill" style="width:${Number(project.progress) || 0}%"></div></div></div></td></tr>
+      <tr><th scope="row">進捗</th><td><div class="detail-progress ${progressTone(project.progress)}"><div class="progress-caption"><strong>${progressValue(project.progress)}%</strong></div><div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${progressValue(project.progress)}"><div class="progress-fill" data-progress="${progressValue(project.progress)}"></div></div></div></td></tr>
       <tr><th scope="row">担当者</th><td>${escapeHtml(project.owner || '—')}</td></tr>
       <tr><th scope="row">タグ</th><td><div class="tag-list">${(project.tags || []).length ? project.tags.map(tag => `<span>${escapeHtml(tag)}</span>`).join('') : '<span class="muted">なし</span>'}</div></td></tr>
       <tr><th scope="row">最終更新</th><td>${escapeHtml(formatDate(project.updatedAt))}${project.updatedBy ? `<br><span class="muted">${escapeHtml(project.updatedBy)}</span>` : ''}</td></tr>
@@ -108,6 +119,7 @@ function openDetail(project) {
     ${listBlock('次に行う作業', project.nextTasks)}
     ${listBlock('問題・ブロッカー', project.blockers)}
     <section class="detail-block architecture-card"><h3>プロジェクト概念図</h3>${project.architecture ? `<p>共有済みの概念図を閲覧できます。</p><button class="primary" data-open-architecture="${escapeHtml(project.projectId)}">概念図を見る</button>` : '<p class="muted">共有済みの概念図はありません。</p>'}</section>`;
+  applyProgressWidths($('#detail-content'));
   $('#detail-dialog').showModal();
 }
 

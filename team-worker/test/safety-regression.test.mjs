@@ -22,7 +22,7 @@ test('固定接続トークンは平文保存せず有効メンバーだけを�
 test('チーム共通閲覧トークンは専用テーブルで暗号化し閲覧APIだけに制限する', async () => {
   const store = await readFile(new URL('../src/d1-store.mjs', import.meta.url), 'utf8');
   const worker = await readFile(new URL('../src/index.mjs', import.meta.url), 'utf8');
-  const viewer = await readFile(new URL('../public/viewer/app.js', import.meta.url), 'utf8');
+  const viewer = await readFile(new URL('../public/viewer/viewer-app.js', import.meta.url), 'utf8');
   assert.match(store, /team_viewer_tokens/);
   assert.match(store, /randomToken\('pmv_'\)/);
   assert.match(store, /token_hash/);
@@ -34,10 +34,12 @@ test('チーム共通閲覧トークンは専用テーブルで暗号化し閲�
 });
 
 test('閲覧画面は進捗を33・66パーセント境界で色分けし台帳形式の詳細を表示する', async () => {
-  const viewer = await readFile(new URL('../public/viewer/app.js', import.meta.url), 'utf8');
+  const viewer = await readFile(new URL('../public/viewer/viewer-app.js', import.meta.url), 'utf8');
   const styles = await readFile(new URL('../public/viewer/styles.css', import.meta.url), 'utf8');
   assert.match(viewer, /value <= 33/);
   assert.match(viewer, /value <= 66/);
+  assert.match(viewer, /fill\.style\.width = `\$\{progressValue\(fill\.dataset\.progress\)\}%`/);
+  assert.doesNotMatch(viewer, /class="progress-fill" style=/);
   assert.match(viewer, /class="definition-table"/);
   assert.match(viewer, /現在作業中の項目/);
   assert.match(viewer, /問題・ブロッカー/);

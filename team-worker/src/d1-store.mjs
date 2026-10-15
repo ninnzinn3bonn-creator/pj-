@@ -53,6 +53,34 @@ export function createD1Store() {
     await env.DB.prepare('UPDATE connection_tokens SET last_used_at = ?1 WHERE id = ?2').bind(new Date().toISOString(), row.id).run();
     return { user: { email: row.email, teamSlug: row.teamSlug }, persistent: true };
   }
+
+  async function issueViewerToken(env, actor, { rotate = false } = {}) {
+    const slug = teamSlug(env, actor);
+    const email = String(actor.email || '').trim().toLowerCase();
+    const existing = await env.DB.prepare('SELECT token_cipher, created_at AS createdAt FROM team_viewer_tokens WHERE team_slug = ?1').bind(slug).first();
+    if (existing && !rotate) {
+      const stored = await unsealOpaque(existing.token_cipher, env.SESSION_SECRET);
+      return { token: stored.token, createdAt: existing.createdAt, rotated: false };
+    }
+    const token = randomToken('pmv_');
+    const tokenHash = await digestToken(token);
+    const tokenCipher = await sealOpaque({ token }, env.SESSION_SECRET);
+    const now = new Date().toISOString();
+    await env.DB.prepare(`INSERT INTO team_viewer_tokens (team_slug, token_hash, token_cipher, created_at, created_by, rotated_at, rotated_by)
+      VALUES (?1, ?2, ?3, ?4, ?5, NULL, NULL)
+      ON CONFLICT(team_slug) DO UPDATE SET token_hash = excluded.token_hash, token_cipher = excluded.token_cipher,
+        rotated_at = excluded.created_at, rotated_by = excluded.created_by`)
+      .bind(slug, tokenHash, tokenCipher, now, email).run();
+    return { token, createdAt: existing?.createdAt || now, rotated: Boolean(existing) };
+  }
+
+  async function authenticateViewerToken(env, token) {
+    const tokenHash = await digestToken(token);
+    const row = await env.DB.prepare('SELECT team_slug AS teamSlug FROM team_viewer_tokens WHERE token_hash = ?1').bind(tokenHash).first();
+    if (!row) return null;
+    await env.DB.prepare('UPDATE team_viewer_tokens SET last_used_at = ?1 WHERE team_slug = ?2').bind(new Date().toISOString(), row.teamSlug).run();
+    return { user: { teamSlug: row.teamSlug }, persistent: true, viewer: true };
+  }
   async function bootstrapUser(env, user) {
     const email = String(user?.email || '').trim().toLowerCase();
     if (!email || !email.includes('@')) throw databaseError('メールアドレスを確認できません。', 401);
@@ -248,5 +276,9 @@ export function createD1Store() {
     await env.DB.prepare('UPDATE access_members SET active = 0, updated_at = ?1 WHERE team_slug = ?2 AND id = ?3').bind(new Date().toISOString(), slug, Number(memberId)).run();
   }
 
-  return { bootstrapUser, listTeams, createTeam, ensureAccess, load, updateProject, deleteProject, listMembers, addMember, removeMember, issueConnectionToken, authenticateConnectionToken };
+  return {
+    bootstrapUser, listTeams, createTeam, ensureAccess, load, updateProject, deleteProject,
+    listMembers, addMember, removeMember, issueConnectionToken, authenticateConnectionToken,
+    issueViewerToken, authenticateViewerToken
+  };
 }

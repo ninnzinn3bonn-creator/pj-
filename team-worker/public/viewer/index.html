@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="description" content="チームで共有している開発プロジェクトの閲覧専用台帳">
+  <title>共有プロジェクト閲覧 | 開発プロジェクト台帳</title>
+  <link rel="stylesheet" href="/architecture-viewer.css">
+  <link rel="stylesheet" href="/viewer/styles.css">
+</head>
+<body>
+  <header class="viewer-header">
+    <div><p class="eyebrow">TEAM PROJECT VIEWER</p><h1>共有プロジェクト</h1><p id="team-label">閲覧専用</p></div>
+    <div id="header-actions" class="header-actions" hidden><button id="refresh-button">更新</button><button id="disconnect-button">接続解除</button></div>
+  </header>
+  <div id="message" class="message" hidden role="status" aria-live="polite"></div>
+  <main>
+    <section id="connect-view" class="connect-card">
+      <p class="eyebrow">READ ONLY</p>
+      <h2>チームの共有台帳に接続</h2>
+      <p>チーム管理者から受け取った閲覧用トークンを入力してください。この画面からプロジェクトを書き換えることはできません。</p>
+      <form id="connect-form">
+        <label for="token-input">閲覧用トークン</label>
+        <input id="token-input" type="password" required autocomplete="off" spellcheck="false" placeholder="pmv_…">
+        <label class="remember-row"><input id="remember-token" type="checkbox" checked> この端末に保存する</label>
+        <button class="primary" type="submit">接続する</button>
+      </form>
+      <p class="security-note">共有端末では「この端末に保存する」を外してください。トークンはURLには送信されません。</p>
+    </section>
+
+    <section id="projects-view" hidden>
+      <div class="toolbar">
+        <label><span>プロジェクトを検索</span><input id="search-input" type="search" placeholder="名前・概要・担当者・タグ"></label>
+        <label><span>ステータス</span><select id="status-filter"><option value="">すべて</option></select></label>
+      </div>
+      <p id="project-count" class="project-count"></p>
+      <div id="project-grid" class="project-grid"></div>
+      <div id="empty-state" class="empty-state" hidden>表示できる共有プロジェクトはありません。</div>
+    </section>
+  </main>
+
+  <dialog id="detail-dialog">
+    <div class="dialog-heading"><div><p class="eyebrow">PROJECT DETAIL</p><h2 id="detail-title"></h2></div><button class="icon-button" data-close aria-label="閉じる">×</button></div>
+    <div id="detail-content" class="detail-content"></div>
+  </dialog>
+
+  <dialog id="architecture-dialog" class="architecture-dialog">
+    <div class="dialog-heading"><div><p class="eyebrow">ARCHITECTURE</p><h2 id="architecture-title">プロジェクト概念図</h2></div><button class="icon-button" data-close aria-label="閉じる">×</button></div>
+    <div id="architecture-root"></div>
+  </dialog>
+
+  <script src="/architecture-viewer.js" defer></script>
+  <script src="/viewer/app.js" defer></script>
+</body>
+</html>

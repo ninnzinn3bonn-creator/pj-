@@ -51,8 +51,8 @@ export async function digestToken(value) {
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
-export function randomToken() {
-  return `pmt_${bytesToBase64Url(crypto.getRandomValues(new Uint8Array(32)))}`;
+export function randomToken(prefix = 'pmt_') {
+  return `${prefix}${bytesToBase64Url(crypto.getRandomValues(new Uint8Array(32)))}`;
 }
 
 export async function revisionFor(value) {

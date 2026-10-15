@@ -211,6 +211,10 @@ main {
   display: flex;
   justify-content: flex-end;
 }
+.viewer-portal-actions {
+  justify-content: flex-start;
+  gap: 8px;
+}
 .empty-state {
   padding: 45px 15px;
   border: 1px solid var(--dark);

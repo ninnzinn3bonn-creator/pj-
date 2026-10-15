@@ -106,6 +106,56 @@ test('D1 connection token stays fixed until explicitly rotated', async () => {
   assert.equal((await digestToken(rotated.token)).length, 64);
   assert.deepEqual(await unsealOpaque(await sealOpaque({ token: rotated.token }, env.SESSION_SECRET), env.SESSION_SECRET), { token: rotated.token });
 });
+test('team viewer token can only read a minimized shared-project view', async () => {
+  const viewerToken = randomToken('pmv_');
+  const store = {
+    async authenticateViewerToken(_env, actualToken) {
+      return actualToken === viewerToken ? { user: { teamSlug: 'test' }, persistent: true, viewer: true } : null;
+    },
+    async load(_env, user) {
+      assert.equal(user.teamSlug, 'test');
+      return { data: { projects: [{ ...project, adminUrl: 'https://admin.test', history: [{ updatedAt: 'now' }], architecture: { schema_version: 1 } }] } };
+    }
+  };
+  const app = createApp({ store });
+  const headers = { Authorization: `Bearer ${viewerToken}` };
+  const listed = await app(new Request('https://team.test/api/viewer/projects', { headers }), { ...env, DB: {} });
+  assert.equal(listed.status, 200);
+  const body = await listed.json();
+  assert.equal(body.team, 'test');
+  assert.equal(body.projects[0].projectId, 'demo');
+  assert.equal(body.projects[0].adminUrl, undefined);
+  assert.equal(body.projects[0].history, undefined);
+  assert.deepEqual(body.projects[0].architecture, { schema_version: 1 });
+  const write = await app(new Request('https://team.test/api/projects/share', {
+    method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify({ project })
+  }), { ...env, DB: {} });
+  assert.equal(write.status, 403);
+  assert.equal((await write.json()).code, 'VIEWER_READ_ONLY');
+});
+
+test('one viewer token is issued per team and only admins can rotate it', async () => {
+  const calls = [];
+  const store = {
+    async ensureAccess(_env, user, role = '') { calls.push(['access', user.email, role]); },
+    async issueViewerToken(_env, user, options) {
+      calls.push(['issue', user.teamSlug, options.rotate]);
+      return { token: 'pmv_team-token', createdAt: '2026-10-15T00:00:00.000Z', rotated: options.rotate };
+    }
+  };
+  const app = createApp({ store });
+  const session = await seal({ user: { email: 'alice@example.com', teamSlug: 'test' }, expiresAt: Date.now() + 60000 }, env.SESSION_SECRET);
+  const request = body => app(new Request('https://team.test/api/viewer-token', {
+    method: 'POST', headers: { Authorization: `Bearer ${session}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body)
+  }), { ...env, DB: {} });
+  const existing = await request({});
+  assert.equal(existing.status, 200);
+  assert.equal((await existing.json()).readOnly, true);
+  const rotated = await request({ rotate: true });
+  assert.equal(rotated.status, 200);
+  assert.ok(calls.some(call => call[0] === 'access' && call[2] === 'admin'));
+  assert.deepEqual(calls.filter(call => call[0] === 'issue'), [['issue', 'test', false], ['issue', 'test', true]]);
+});
 test('missing private repository is access denial, not empty team', async () => {
   const store = createGitHubStore(async () => Response.json({ message: 'Not Found' }, { status: 404 }));
   await assert.rejects(store.load(env, 'token'), error => error.status === 403);

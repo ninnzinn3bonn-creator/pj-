@@ -29,6 +29,11 @@
         <p>ローカル台帳の「台帳ツール → チーム連携設定」へ、以下の接続情報を登録してください。接続後は個人用と共有プロジェクトが同じ一覧に表示されます。</p>
         <button id="connection-button" class="primary">接続情報を表示</button>
       </div>
+      <div class="portal-card">
+        <h2>共有プロジェクトを閲覧</h2>
+        <p>チーム共通の閲覧用トークンをスマートフォンやPCへ登録すると、ログインせず共有プロジェクトだけを確認できます。編集権限はありません。</p>
+        <div class="card-actions viewer-portal-actions"><a class="primary-link" href="/viewer">閲覧ページを開く</a><button id="viewer-token-button">閲覧用トークンを表示</button></div>
+      </div>
       <section id="members-section" class="portal-card" hidden>
         <h2>チームメンバー</h2>
         <p>メールアドレスを指定して、このチームへのアクセスを許可します。</p>
@@ -45,6 +50,13 @@
     <label><span>チームID</span><input id="connection-team" readonly></label>
     <label><span>接続トークン</span><textarea id="connection-token" rows="6" readonly></textarea></label>
     <div class="dialog-actions"><button id="rotate-connection" class="danger-text">トークンを再発行</button><button id="copy-connection" class="primary">接続情報をコピー</button></div>
+  </dialog>
+  <dialog id="viewer-token-dialog">
+    <div class="dialog-heading"><h2>チーム共通の閲覧用トークン</h2><button data-close>×</button></div>
+    <p>このチームの全員が同じトークンを利用します。共有プロジェクトの閲覧専用で、更新や共有解除には利用できません。</p>
+    <label><span>閲覧ページURL</span><input id="viewer-url" readonly></label>
+    <label><span>閲覧用トークン</span><textarea id="viewer-token" rows="5" readonly></textarea></label>
+    <div class="dialog-actions"><button id="rotate-viewer-token" class="danger-text">トークンを再発行</button><button id="copy-viewer-token" class="primary">閲覧情報をコピー</button></div>
   </dialog>
   <script src="/app.js" defer></script>
 </body>

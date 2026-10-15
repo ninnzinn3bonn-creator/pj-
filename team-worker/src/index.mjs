@@ -80,8 +80,44 @@ async function sessionFromRequest(request, env, store) {
       const persistent = await store.authenticateConnectionToken(env, bearer);
       if (persistent) return persistent;
     }
+    if (bearer?.startsWith('pmv_') && store?.authenticateViewerToken) {
+      const viewer = await store.authenticateViewerToken(env, bearer);
+      if (viewer) return viewer;
+    }
     throw Object.assign(new Error('セッションが無効です。再度ログインしてください。'), { status: 401 });
   }
+}
+
+function viewerProject(project) {
+  return {
+    projectId: project.projectId,
+    name: project.name,
+    appUrl: project.appUrl || '',
+    repositoryUrl: project.repositoryUrl || '',
+    developmentUrl: project.developmentUrl || '',
+    status: project.status,
+    progress: project.progress,
+    owner: project.owner || '',
+    tags: project.tags || [],
+    summary: project.summary || '',
+    currentTasks: project.currentTasks || [],
+    nextTasks: project.nextTasks || [],
+    blockers: project.blockers || [],
+    updatedAt: project.updatedAt || '',
+    updatedBy: project.updatedBy || '',
+    ...(project.architecture ? { architecture: project.architecture } : {})
+  };
+}
+
+async function viewerAsset(request, env) {
+  const response = await env.ASSETS.fetch(request);
+  const headers = new Headers(response.headers);
+  headers.set('Cache-Control', 'no-store');
+  headers.set('Content-Security-Policy', "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
+  headers.set('Referrer-Policy', 'no-referrer');
+  headers.set('X-Content-Type-Options', 'nosniff');
+  headers.set('X-Frame-Options', 'DENY');
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
 }
 
 async function updateProjectStore(store, env, credential, actor, body, projectId = '') {
@@ -193,6 +229,14 @@ export function createApp({ fetchImpl = fetch, store = null, verifyAccess = acce
 
       if (url.pathname.startsWith('/api/')) {
         const session = await sessionFromRequest(request, env, activeStore);
+        if (url.pathname === '/api/viewer/projects' && request.method === 'GET') {
+          if (!session.viewer && activeStore.ensureAccess) await activeStore.ensureAccess(env, session.user);
+          const loaded = await activeStore.load(env, session.user);
+          return json({ schemaVersion: 1, team: session.user.teamSlug || env.TEAM_SLUG, projects: loaded.data.projects.map(viewerProject) }, 200, cors);
+        }
+        if (session.viewer) {
+          throw Object.assign(new Error('閲覧用トークンは共有プロジェクトの閲覧だけに利用できます。'), { status: 403, code: 'VIEWER_READ_ONLY' });
+        }
         if (activeStore.ensureAccess) await activeStore.ensureAccess(env, session.user);
         if (session.persistent && !url.pathname.startsWith('/api/projects')) {
           throw Object.assign(new Error('固定接続トークンはプロジェクト同期APIだけで利用できます。'), { status: 403 });
@@ -224,6 +268,12 @@ export function createApp({ fetchImpl = fetch, store = null, verifyAccess = acce
           }
           const token = await seal(session, env.SESSION_SECRET);
           return json({ token, teamUrl: url.origin, team: session.user.teamSlug, expiresAt: new Date(session.expiresAt).toISOString(), persistent: false }, 200, cors);
+        }
+        if (url.pathname === '/api/viewer-token' && request.method === 'POST' && activeStore.issueViewerToken) {
+          const input = await bodyJson(request, { allowEmpty: true });
+          if (input.rotate === true) await activeStore.ensureAccess(env, session.user, 'admin');
+          const issued = await activeStore.issueViewerToken(env, session.user, { rotate: input.rotate === true });
+          return json({ ...issued, viewerUrl: `${url.origin}/viewer`, team: session.user.teamSlug, expiresAt: null, readOnly: true }, 200, cors);
         }
         if (url.pathname === '/api/projects' && request.method === 'GET') {
           const loaded = await activeStore.load(env, credential);
@@ -261,6 +311,7 @@ export function createApp({ fetchImpl = fetch, store = null, verifyAccess = acce
         }
         throw Object.assign(new Error('APIが見つかりません。'), { status: 404 });
       }
+      if (url.pathname === '/viewer' || url.pathname.startsWith('/viewer/')) return viewerAsset(request, env);
       return env.ASSETS.fetch(request);
     } catch (error) {
       console.error(JSON.stringify({ event: 'request_error', path: url.pathname, status: error.status || 500, code: error.code || '', message: error.message }));

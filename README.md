@@ -4,7 +4,7 @@
 
 個人のPCで使う台帳と、チーム全員で編集する共有台帳を組み合わせて利用できます。AIへ渡す手順は、このリポジトリ内に用意しています。
 
-**[チーム接続ポータル](https://project-manager-team.ninnzinn-3bonn.workers.dev)** · **[AI用の導入手順](docs/AI-SETUP.md)** · **[管理者の初回設定](team-worker/README.md)**
+**[チーム接続ポータル](https://project-manager-team.ninnzinn-3bonn.workers.dev)** · **[共有プロジェクト閲覧](https://project-manager-team.ninnzinn-3bonn.workers.dev/viewer)** · **[AI用の導入手順](docs/AI-SETUP.md)** · **[管理者の初回設定](team-worker/README.md)**
 
 | 順番 | やること | 完了すると |
 |---|---|---|
@@ -33,7 +33,7 @@ AGENTS.md / CLAUDE.md と docs/AI-SETUP.md を読み、順番に実行してく�
 
 Claude Codeでは**プラグイン（スキル＋フック）**として導入します。Codex用とは別の形式を準備スクリプトが生成します。既存の進捗更新はローカル向けで、チームへの送信は共有ボタンまたは共有CLIから行います。
 
-> 接続ポータルのURLは公開されていますが、プロジェクト一覧は表示しません。共有データはCloudflare Accessのメール認証とチームメンバー照合を通過したローカル台帳だけがD1から取得できます。
+> 接続ポータルのURLだけではプロジェクト一覧を取得できません。共有データは、メール認証済みのローカル台帳、またはチーム共通の閲覧用トークンを登録した閲覧専用ページだけがD1から取得できます。閲覧用トークンには更新権限がありません。
 
 ## アプリについて
 

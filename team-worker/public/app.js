@@ -42,6 +42,7 @@ async function initialize() {
     $('#user-label').textContent = session.user.email;
     $('#team-note').textContent = `チーム: ${session.team}。プロジェクトは認証付きD1 APIからローカル台帳へ同期されます。`;
     $('#team-select').innerHTML = session.teams.map(team => `<option value="${escapeHtml(team.teamSlug)}"${team.teamSlug === session.team ? ' selected' : ''}>${escapeHtml(team.name)} (${escapeHtml(team.role)})</option>`).join('');
+    $('#rotate-viewer-token').hidden = session.teams.find(team => team.teamSlug === session.team)?.role !== 'admin';
     await loadMembers();
   } catch (error) {
     if (error.status !== 401) message(error.message, true);
@@ -56,6 +57,31 @@ $('#connection-button').addEventListener('click', async () => {
     $('#connection-token').value = data.token;
     $('#connection-dialog').showModal();
   } catch (error) { message(error.message, true); }
+});
+
+$('#viewer-token-button').addEventListener('click', async () => {
+  try {
+    const data = await api('/api/viewer-token', { method: 'POST', body: '{}' });
+    $('#viewer-url').value = data.viewerUrl;
+    $('#viewer-token').value = data.token;
+    $('#viewer-token-dialog').showModal();
+  } catch (error) { message(error.message, true); }
+});
+
+$('#rotate-viewer-token').addEventListener('click', async () => {
+  if (!confirm('チーム共通の閲覧用トークンを再発行しますか？現在すべての端末に保存されている旧トークンは直ちに使えなくなります。')) return;
+  const button = $('#rotate-viewer-token');
+  button.disabled = true;
+  try {
+    const data = await api('/api/viewer-token', { method: 'POST', body: JSON.stringify({ rotate: true }) });
+    $('#viewer-token').value = data.token;
+    message('閲覧用トークンを再発行しました。閲覧端末の接続情報を更新してください。');
+  } catch (error) { message(error.message, true); } finally { button.disabled = false; }
+});
+
+$('#copy-viewer-token').addEventListener('click', async () => {
+  const text = `共有プロジェクト閲覧URL: ${$('#viewer-url').value}\n閲覧用トークン: ${$('#viewer-token').value}`;
+  try { await navigator.clipboard.writeText(text); message('閲覧情報をコピーしました。'); } catch { message('コピーできませんでした。', true); }
 });
 
 $('#rotate-connection').addEventListener('click', async () => {

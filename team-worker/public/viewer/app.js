@@ -50,6 +50,13 @@ function projectSearchText(project) {
   return [project.name, project.projectId, project.summary, project.owner, ...(project.tags || [])].join(' ').toLocaleLowerCase('ja');
 }
 
+function progressTone(progress) {
+  const value = Math.max(0, Math.min(100, Number(progress) || 0));
+  if (value <= 33) return 'progress-low';
+  if (value <= 66) return 'progress-middle';
+  return 'progress-high';
+}
+
 function filteredProjects() {
   const query = $('#search-input').value.trim().toLocaleLowerCase('ja');
   const status = $('#status-filter').value;
@@ -63,10 +70,12 @@ function renderProjects() {
   $('#project-grid').innerHTML = visible.map(project => `
     <article class="project-card" data-project-id="${escapeHtml(project.projectId)}" tabindex="0">
       <div class="card-heading"><div><h2>${escapeHtml(project.name)}</h2><p class="project-id">${escapeHtml(project.projectId)}</p></div><span class="status status-${escapeHtml(project.status)}">${escapeHtml(statusLabels[project.status] || project.status)}</span></div>
-      <p class="summary">${escapeHtml(project.summary || '概要は登録されていません。')}</p>
-      <div class="progress-line"><div class="progress-track" aria-label="進捗 ${project.progress}%"><div class="progress-fill" style="width:${Number(project.progress) || 0}%"></div></div><strong>${Number(project.progress) || 0}%</strong></div>
+      <div class="card-progress ${progressTone(project.progress)}">
+        <div class="progress-caption"><span>進捗</span><strong>${Number(project.progress) || 0}%</strong></div>
+        <div class="progress-track" role="progressbar" aria-label="${escapeHtml(project.name)}の進捗" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Number(project.progress) || 0}"><div class="progress-fill" style="width:${Number(project.progress) || 0}%"></div></div>
+      </div>
       <div class="card-meta"><span>${escapeHtml(project.owner || '担当者未設定')}</span><span>${escapeHtml(formatDate(project.updatedAt))}</span></div>
-      <div class="tag-list">${(project.tags || []).slice(0, 5).map(tag => `<span>${escapeHtml(tag)}</span>`).join('')}</div>
+      <p class="open-detail">詳細を見る <span aria-hidden="true">→</span></p>
     </article>`).join('');
 }
 
@@ -75,22 +84,30 @@ function listBlock(title, items) {
   return `<section class="detail-block"><h3>${escapeHtml(title)}</h3>${values.length ? `<ul>${values.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>` : '<p class="muted">なし</p>'}</section>`;
 }
 
+function detailLink(value) {
+  const url = safeExternalUrl(value);
+  return url ? `<a class="detail-url" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(url)}</a>` : '<span class="muted">未登録</span>';
+}
+
 function openDetail(project) {
   $('#detail-title').textContent = project.name;
-  const links = [
-    safeExternalUrl(project.appUrl) && ['アプリを開く', safeExternalUrl(project.appUrl)],
-    safeExternalUrl(project.developmentUrl) && ['開発環境を開く', safeExternalUrl(project.developmentUrl)],
-    safeExternalUrl(project.repositoryUrl) && ['リポジトリを開く', safeExternalUrl(project.repositoryUrl)]
-  ].filter(Boolean);
   $('#detail-content').innerHTML = `
-    <div class="detail-summary"><span class="status status-${escapeHtml(project.status)}">${escapeHtml(statusLabels[project.status] || project.status)}</span><strong>${Number(project.progress) || 0}%</strong><span>${escapeHtml(project.owner || '担当者未設定')}</span></div>
-    <p>${escapeHtml(project.summary || '概要は登録されていません。')}</p>
-    ${listBlock('現在のタスク', project.currentTasks)}
-    ${listBlock('次のタスク', project.nextTasks)}
-    ${listBlock('ブロッカー', project.blockers)}
-    <div class="detail-links">${links.map(([label, url]) => `<a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>`).join('')}</div>
-    ${project.architecture ? `<button class="primary" data-open-architecture="${escapeHtml(project.projectId)}">概念図を見る</button>` : '<p class="muted">共有済みの概念図はありません。</p>'}
-    <p class="detail-updated">最終更新 ${escapeHtml(formatDate(project.updatedAt))}${project.updatedBy ? ` · ${escapeHtml(project.updatedBy)}` : ''}</p>`;
+    <p class="detail-project-id">${escapeHtml(project.projectId)}</p>
+    <table class="definition-table"><tbody>
+      <tr><th scope="row">アプリURL</th><td>${detailLink(project.appUrl)}</td></tr>
+      <tr><th scope="row">リポジトリURL</th><td>${detailLink(project.repositoryUrl)}</td></tr>
+      <tr><th scope="row">開発環境URL</th><td>${detailLink(project.developmentUrl)}</td></tr>
+      <tr><th scope="row">管理状態</th><td><span class="status status-${escapeHtml(project.status)}">${escapeHtml(statusLabels[project.status] || project.status)}</span></td></tr>
+      <tr><th scope="row">進捗</th><td><div class="detail-progress ${progressTone(project.progress)}"><div class="progress-caption"><strong>${Number(project.progress) || 0}%</strong></div><div class="progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Number(project.progress) || 0}"><div class="progress-fill" style="width:${Number(project.progress) || 0}%"></div></div></div></td></tr>
+      <tr><th scope="row">担当者</th><td>${escapeHtml(project.owner || '—')}</td></tr>
+      <tr><th scope="row">タグ</th><td><div class="tag-list">${(project.tags || []).length ? project.tags.map(tag => `<span>${escapeHtml(tag)}</span>`).join('') : '<span class="muted">なし</span>'}</div></td></tr>
+      <tr><th scope="row">最終更新</th><td>${escapeHtml(formatDate(project.updatedAt))}${project.updatedBy ? `<br><span class="muted">${escapeHtml(project.updatedBy)}</span>` : ''}</td></tr>
+    </tbody></table>
+    <section class="detail-block detail-overview"><h3>現在の状況</h3><p>${escapeHtml(project.summary || '記載なし')}</p></section>
+    ${listBlock('現在作業中の項目', project.currentTasks)}
+    ${listBlock('次に行う作業', project.nextTasks)}
+    ${listBlock('問題・ブロッカー', project.blockers)}
+    <section class="detail-block architecture-card"><h3>プロジェクト概念図</h3>${project.architecture ? `<p>共有済みの概念図を閲覧できます。</p><button class="primary" data-open-architecture="${escapeHtml(project.projectId)}">概念図を見る</button>` : '<p class="muted">共有済みの概念図はありません。</p>'}</section>`;
   $('#detail-dialog').showModal();
 }
 

@@ -32,3 +32,16 @@ test('チーム共通閲覧トークンは専用テーブルで暗号化し閲�
   assert.doesNotMatch(viewer, /method:\s*['"](?:POST|PUT|DELETE)['"]/);
   assert.doesNotMatch(viewer, /[?&]token=/);
 });
+
+test('閲覧画面は進捗を33・66パーセント境界で色分けし台帳形式の詳細を表示する', async () => {
+  const viewer = await readFile(new URL('../public/viewer/app.js', import.meta.url), 'utf8');
+  const styles = await readFile(new URL('../public/viewer/styles.css', import.meta.url), 'utf8');
+  assert.match(viewer, /value <= 33/);
+  assert.match(viewer, /value <= 66/);
+  assert.match(viewer, /class="definition-table"/);
+  assert.match(viewer, /現在作業中の項目/);
+  assert.match(viewer, /問題・ブロッカー/);
+  assert.match(styles, /\.progress-low \.progress-fill \{ background: #c83d46; \}/);
+  assert.match(styles, /\.progress-middle \.progress-fill \{ background: #e0ad20; \}/);
+  assert.match(styles, /\.progress-high \.progress-fill \{ background: #287fbd; \}/);
+});

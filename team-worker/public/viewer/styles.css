@@ -37,36 +37,51 @@ main { width: min(1180px, calc(100% - 40px)); margin: 20px auto 60px; }
 .toolbar { display: grid; grid-template-columns: minmax(260px, 1fr) minmax(180px, 260px); gap: 12px; padding: 14px; border: 1px solid var(--dark); background: var(--surface); }
 .toolbar label span { display: block; margin-bottom: 3px; color: var(--muted); font-size: 12px; font-weight: 700; }
 .project-count { margin: 12px 0 6px; }
-.project-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
-.project-card { padding: 15px; border: 1px solid var(--dark); background: var(--surface); cursor: pointer; transition: transform .12s ease, box-shadow .12s ease; }
+.project-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 12px; }
+.project-card { position: relative; padding: 17px; border: 1px solid var(--dark); border-left-width: 4px; background: var(--surface); cursor: pointer; transition: transform .12s ease, box-shadow .12s ease; }
 .project-card:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgb(0 0 0 / .08); }
 .card-heading { display: flex; justify-content: space-between; gap: 10px; }
-.project-card h2 { margin: 0; font-size: 17px; }
+.project-card h2 { margin: 0; font-size: 19px; line-height: 1.35; }
 .project-id { margin: 2px 0; color: var(--muted); font: 11px Consolas, monospace; }
 .status { display: inline-flex; align-items: center; height: fit-content; padding: 2px 7px; border: 1px solid var(--dark); background: #f8f8f8; font-size: 12px; font-weight: 700; white-space: nowrap; }
 .status-blocked { border-color: #b74a50; background: #fff1f1; color: #8c171d; }
 .status-published { border-color: #509363; background: #eff8f1; color: #1a632d; }
-.summary { min-height: 45px; }
-.progress-line { display: flex; align-items: center; gap: 8px; }
-.progress-track { flex: 1; height: 8px; border: 1px solid var(--dark); background: #fff; }
-.progress-fill { height: 100%; background: #25292d; }
-.card-meta { display: flex; justify-content: space-between; gap: 12px; margin-top: 10px; color: var(--muted); font-size: 12px; }
+.card-progress { margin-top: 16px; }
+.progress-caption { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: 5px; color: var(--muted); font-size: 12px; }
+.progress-caption strong { color: var(--text); font-size: 17px; font-variant-numeric: tabular-nums; }
+.progress-track { width: 100%; height: 14px; overflow: hidden; border: 1px solid #858a90; background: #e8eaed; }
+.progress-fill { height: 100%; min-width: 0; transition: width .2s ease; }
+.progress-low .progress-fill { background: #c83d46; }
+.progress-middle .progress-fill { background: #e0ad20; }
+.progress-high .progress-fill { background: #287fbd; }
+.card-meta { display: flex; justify-content: space-between; gap: 12px; margin-top: 13px; color: var(--muted); font-size: 12px; }
+.open-detail { margin: 13px 0 0; padding-top: 9px; border-top: 1px solid var(--border); color: #155c91; font-size: 13px; font-weight: 700; text-align: right; }
 .tag-list { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px; }
 .tag-list span { padding: 2px 6px; background: #eceeef; font-size: 11px; }
+.definition-table .tag-list { margin-top: 0; }
 .empty-state { margin-top: 12px; padding: 50px 15px; border: 1px solid var(--dark); background: var(--surface); color: var(--muted); text-align: center; }
 dialog { width: min(760px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); padding: 0; border: 1px solid var(--dark); background: var(--surface); }
 dialog::backdrop { background: rgb(0 0 0 / .4); }
 .dialog-heading { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 13px 16px; border-bottom: 1px solid var(--border); background: var(--surface); }
 .dialog-heading h2 { margin: 2px 0 0; font-size: 19px; }
 .icon-button { min-width: 42px; font-size: 20px; }
-.detail-content { padding: 16px; overflow: auto; }
-.detail-summary { display: flex; align-items: center; flex-wrap: wrap; gap: 12px; }
+.detail-content { padding: 0 16px 20px; overflow: auto; }
+.detail-project-id { margin: 12px 0; color: var(--muted); font: 12px Consolas, monospace; }
+.definition-table { width: 100%; table-layout: fixed; border-collapse: collapse; border: 1px solid var(--dark); }
+.definition-table th, .definition-table td { padding: 9px 10px; border-bottom: 1px solid var(--border); vertical-align: top; text-align: left; }
+.definition-table th { width: 155px; background: #eceeef; font-size: 13px; }
+.definition-table td { overflow-wrap: anywhere; }
+.detail-url { color: #155c91; }
+.detail-progress { max-width: 430px; }
+.detail-progress .progress-caption { justify-content: flex-start; margin: 0 0 4px; }
+.detail-progress .progress-track { height: 11px; }
 .detail-block { margin-top: 18px; }
-.detail-block h3 { margin: 0 0 5px; font-size: 15px; }
+.detail-block h3 { margin: 0 0 7px; padding-bottom: 4px; border-bottom: 1px solid var(--border); font-size: 15px; }
 .detail-block ul { margin: 0; padding-left: 22px; }
-.detail-links { display: flex; flex-wrap: wrap; gap: 8px; margin: 18px 0; }
-.detail-links a { display: inline-flex; align-items: center; padding: 6px 10px; border: 1px solid var(--dark); color: inherit; text-decoration: none; }
-.detail-updated { margin-top: 20px; color: var(--muted); font-size: 12px; }
+.detail-block li { margin: 3px 0; }
+.detail-overview p { white-space: pre-wrap; }
+.architecture-card { padding: 13px; border: 1px solid var(--dark); background: #f8f9fa; }
+.architecture-card h3 { border-bottom: 0; }
 .architecture-dialog { width: min(1400px, calc(100vw - 16px)); height: calc(100dvh - 16px); max-height: none; }
 #architecture-root { height: calc(100% - 70px); min-height: 480px; }
 @media (max-width: 620px) {
@@ -75,7 +90,14 @@ dialog::backdrop { background: rgb(0 0 0 / .4); }
   main { width: calc(100% - 24px); margin: 12px auto 40px; }
   .connect-card { margin: 4vh auto; }
   .toolbar, .project-grid { grid-template-columns: 1fr; }
+  .project-grid { gap: 10px; }
+  .project-card { padding: 15px 13px; }
   .card-meta { align-items: flex-start; flex-direction: column; gap: 2px; }
+  .definition-table, .definition-table tbody, .definition-table tr, .definition-table th, .definition-table td { display: block; width: 100%; }
+  .definition-table tr { border-bottom: 1px solid var(--border); }
+  .definition-table th, .definition-table td { border-bottom: 0; }
+  .definition-table th { padding-bottom: 3px; }
+  .definition-table td { padding-top: 4px; }
   dialog { width: 100vw; height: 100dvh; max-height: none; border: 0; }
   .architecture-dialog { width: 100vw; height: 100dvh; }
   #architecture-root { min-height: 0; }
